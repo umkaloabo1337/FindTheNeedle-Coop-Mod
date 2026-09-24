@@ -141,6 +141,7 @@ mods/multiplayer/     lo que va en la release
   models/             modelo del granjero (CC0)
   steam/              GodotSteam GDExtension (compilado)
 dev/mp_test.gd        arnés de pruebas, no se distribuye
+dev/avatar_calib.gd   ajuste en vivo de la altura del avatar, no se distribuye
 dev/models/           herramientas para preparar el modelo
 docs/                 textos de la página de Nexus
 ```
@@ -165,6 +166,10 @@ Para usar el arnés de pruebas, copia `dev/mp_test.gd` junto a `mp.gd` y arranca
 el juego con `MP_TEST_AVATAR=user://saves/slot_1.dat`, y `MP_TEST_TOOL=1` para
 la pala. Coloca dos muñecos con esa herramienta, uno de ellos girado, y guarda
 una captura.
+
+`dev/avatar_calib.gd` te pone delante un granjero que copia hacia dónde miras
+y si te agachas, para ajustar `MODEL_HEIGHT` y `CROUCH_DROP` con las flechas y
+guardarlos con F9. Cómo activarlo está al principio del archivo.
 
 ## Créditos
 
