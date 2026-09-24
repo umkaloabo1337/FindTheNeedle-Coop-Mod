@@ -142,6 +142,7 @@ mods/multiplayer/     what ships in the release
   models/             farmer model (CC0)
   steam/              GodotSteam GDExtension (prebuilt)
 dev/mp_test.gd        test harness, not shipped
+dev/avatar_calib.gd   live avatar height tuning, not shipped
 dev/models/           tooling used to prepare the model
 docs/                 Nexus page copy
 ```
@@ -151,7 +152,7 @@ Nothing is compiled. Edit a file, restart the game.
 Remote players are an animated farmer, `mods/multiplayer/models/farmer.glb`,
 loaded at runtime with `GLTFDocument`. The overalls and the hat band take the
 player's colour, the head follows where they look, the legs bend when they
-crouch, and the clip (Idle, Walk, Run) follows their speed. If the file is
+crouch, and the clip (Idle_Neutral, Walk, Run) follows their speed. If the file is
 missing or fails to load, an older figure made of primitives stands in. The
 `.glb` is the original pack trimmed to those three clips with
 `dev/models/slim_glb.py`, which takes it from 1.3 MB to 500 KB.
@@ -165,6 +166,10 @@ To use the test harness, copy `dev/mp_test.gd` next to `mp.gd` and start the
 game with `MP_TEST_AVATAR=user://saves/slot_1.dat` set, plus `MP_TEST_TOOL=1`
 for the spade. It drops two puppets holding that tool, one of them flipped, and
 writes a screenshot.
+
+`dev/avatar_calib.gd` puts a farmer in front of you that copies your look and
+crouch, so you can tune `MODEL_HEIGHT` and `CROUCH_DROP` with the arrow keys
+and save them with F9. How to enable it is at the top of the file.
 
 ## Credits
 

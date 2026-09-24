@@ -2,4 +2,4 @@ farmer.glb
   "Farmer" from the Ultimate Modular Men Pack by Quaternius
   https://quaternius.com/packs/ultimatemodularcharacters.html
   Licence: CC0 1.0 (public domain) - https://creativecommons.org/publicdomain/zero/1.0/
-  Trimmed to the Idle, Walk and Run clips with dev/models/slim_glb.py.
+  Trimmed to the Idle_Neutral, Walk and Run clips with dev/models/slim_glb.py.

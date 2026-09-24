@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+* Remote players stand straight when idle. The old idle clip had the hips
+  twisted and left the feet where the last step put them, so the shoes
+  stretched after walking.
+* Farmer height and crouch tuned in game so eyes meet at the camera height,
+  standing and crouched. `dev/avatar_calib.gd` is the tool used for it.
+
 ## v0.6.0
 
 * An optional install helper lives in `tools/` and is attached to the release,

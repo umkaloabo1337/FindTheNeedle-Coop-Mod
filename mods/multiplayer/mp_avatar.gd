@@ -21,13 +21,14 @@ const EYE := 1.66
 
 # farmer from Quaternius' Ultimate Modular Men Pack (CC0), see models/CREDITS.txt
 const MODEL_FILE := "models/farmer.glb"
-const MODEL_HEIGHT := 1.78  # same as the player's STAND_HEIGHT
+const MODEL_HEIGHT := 1.89  # hat included, tuned in game so the eyes meet
 # clip ground speeds in m/s. the player walks at 4.2 (7 sprinting), which is
 # already a jog, so Walk is only used when slow or crouched
 const WALK_CLIP_SPEED := 1.3
 const RUN_CLIP_SPEED := 3.05
 const RUN_FROM := 2.6
-const CROUCH_DROP := 0.45
+const IDLE := "Idle_Neutral"  # plain "Idle" stands twisted and leaves the feet behind
+const CROUCH_DROP := 0.63
 const CROUCH_LEAN := 0.35
 const TINTS := {"LightBlue": 0.25, "Red": 0.0}  # overalls, hat band
 
@@ -42,6 +43,7 @@ var _has_target := false
 var _walk := 0.0
 var _pitch := 0.0
 var _crouch_now := 0.0
+var crouch_drop := CROUCH_DROP  # var so dev/avatar_calib.gd can tune it live
 
 var _body: Node3D
 var _head: Node3D
@@ -174,12 +176,12 @@ func _build_farmer() -> bool:
 				dyed.albedo_color = _color.darkened(TINTS[mat.resource_name])
 				mi.set_surface_override_material(i, dyed)
 
-	for clip in ["Idle", "Walk", "Run"]:
+	for clip in [IDLE, "Walk", "Run"]:
 		if _anim.has_animation(clip):
 			_anim.get_animation(clip).loop_mode = Animation.LOOP_LINEAR
 	# advanced by hand so we can pose the head and arm on top
 	_anim.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
-	_play("Idle", 0.0)
+	_play(IDLE, 0.0)
 
 	# follows the right hand, tools hang off it
 	_hand = Node3D.new()
@@ -195,7 +197,7 @@ func _play(clip: String, blend: float) -> void:
 
 
 func _animate_farmer(delta: float) -> void:
-	var clip := "Idle"
+	var clip := IDLE
 	if _moving > RUN_FROM and _crouch < 0.5:
 		clip = "Run"
 	elif _moving > 0.3:
@@ -261,7 +263,7 @@ func _aim_bone_local(b: int, want: Vector3) -> void:
 func _crouch_legs(amount: float, right: Vector3) -> void:
 	var to_skel := _skel.global_basis.inverse()
 	if _b_body >= 0:
-		var drop := to_skel * (Vector3.DOWN * CROUCH_DROP * amount)
+		var drop := to_skel * (Vector3.DOWN * crouch_drop * amount)
 		var parent := _skel.get_bone_parent(_b_body)
 		if parent >= 0:
 			drop = _skel.get_bone_global_pose(parent).basis.inverse() * drop
@@ -412,7 +414,7 @@ func _process(delta: float) -> void:
 	_crouch_now = lerpf(_crouch_now, _crouch, k)
 	if _skel != null:
 		_animate_farmer(delta)
-		_label.position.y = EYE + 0.55 - CROUCH_DROP * _crouch_now
+		_label.position.y = EYE + 0.55 - crouch_drop * _crouch_now
 	else:
 		_body.scale.y = 1.0 - 0.3 * _crouch_now
 		_animate_figure(delta, k)

@@ -145,6 +145,7 @@ mods/multiplayer/     lo que va en la release
   models/             modelo del granjero (CC0)
   steam/              GodotSteam GDExtension (compilado)
 dev/mp_test.gd        arnés de pruebas, no se distribuye
+dev/avatar_calib.gd   ajuste en vivo de la altura del avatar, no se distribuye
 dev/models/           herramientas para preparar el modelo
 docs/                 textos de la página de Nexus
 ```
@@ -155,7 +156,7 @@ Los otros jugadores son un granjero animado,
 `mods/multiplayer/models/farmer.glb`, que se carga al vuelo con
 `GLTFDocument`. El peto y la banda del sombrero toman el color del jugador, la
 cabeza sigue hacia donde mira, las piernas se doblan al agacharse y la
-animación (Idle, Walk, Run) sigue su velocidad. Si falta el archivo o no carga,
+animación (Idle_Neutral, Walk, Run) sigue su velocidad. Si falta el archivo o no carga,
 aparece una figura antigua hecha de formas básicas. El `.glb` es el original
 del pack recortado a esas tres animaciones con `dev/models/slim_glb.py`, que lo
 deja de 1,3 MB en 500 KB.
@@ -169,6 +170,10 @@ Para usar el arnés de pruebas, copia `dev/mp_test.gd` junto a `mp.gd` y arranca
 el juego con `MP_TEST_AVATAR=user://saves/slot_1.dat`, y `MP_TEST_TOOL=1` para
 la pala. Coloca dos muñecos con esa herramienta, uno de ellos girado, y guarda
 una captura.
+
+`dev/avatar_calib.gd` te pone delante un granjero que copia hacia dónde miras
+y si te agachas, para ajustar `MODEL_HEIGHT` y `CROUCH_DROP` con las flechas y
+guardarlos con F9. Cómo activarlo está al principio del archivo.
 
 ## Créditos
 
