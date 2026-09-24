@@ -187,12 +187,13 @@ writes a screenshot.
 crouch, so you can tune `MODEL_HEIGHT` and `CROUCH_DROP` with the arrow keys
 and save them with F9. How to enable it is at the top of the file.
 
-`dev/tool_poser.gd` works the same way: a farmer stands in front of you with
-the tool you pick (1-6), and you move, turn and resize it with the keys, the
-mouse or the sliders on the right, while previewing looking up and down,
-walking and crouching. F9 writes `tool_poses.cfg` into the mod folder. The keys
-are listed at the top of the file. `dev/tool_poser.bat` starts the game with it
-and puts `override.cfg` back when you close the game.
+`dev/tool_poser.gd` swaps the main menu for an empty stage with a farmer
+holding the tool you pick (1-6). Drag the move (W) or rotate (E) gizmo on the
+tool, or use the sliders on the right, and preview looking up and down,
+walking, crouching or a turntable. The camera orbits, pans and flies like in
+the Godot editor. F9 writes `tool_poses.cfg` into the mod folder. The keys are
+listed at the top of the file. `dev/tool_poser.bat` starts the game with it and
+puts `override.cfg` back when you close the game.
 
 ## Credits
 

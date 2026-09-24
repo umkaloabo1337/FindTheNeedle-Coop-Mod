@@ -192,12 +192,14 @@ una captura.
 y si te agachas, para ajustar `MODEL_HEIGHT` y `CROUCH_DROP` con las flechas y
 guardarlos con F9. Cómo activarlo está al principio del archivo.
 
-`dev/tool_poser.gd` funciona igual: tienes delante un granjero con la
-herramienta que elijas (1-6) y la mueves, giras y cambias de tamaño con las
-teclas, el ratón o los deslizadores de la derecha, viendo cómo queda al mirar
-arriba y abajo, al andar y al agacharse. F9 escribe `tool_poses.cfg` en la
-carpeta del mod. Las teclas están al principio del archivo. `dev/tool_poser.bat`
-abre el juego con ella y deja `override.cfg` como estaba al cerrarlo.
+`dev/tool_poser.gd` cambia el menú principal por un escenario vacío con un
+granjero que sostiene la herramienta que elijas (1-6). Arrastra el gizmo de
+mover (W) o girar (E) sobre la herramienta, o usa los deslizadores de la
+derecha, y mira cómo queda al mirar arriba y abajo, al andar, al agacharse o
+dando vueltas. La cámara orbita, se desplaza y vuela como en el editor de
+Godot. F9 escribe `tool_poses.cfg` en la carpeta del mod. Las teclas están al
+principio del archivo. `dev/tool_poser.bat` abre el juego con ella y deja
+`override.cfg` como estaba al cerrarlo.
 
 ## Créditos
 
