@@ -39,6 +39,7 @@ const HOST_MAX := ["mission_index", "contract_index"]
 
 var avatars := {}
 var _avatar_script: Script
+var _me: Node  # our own body, seen when looking down
 var _pose_t := 0.0
 
 var _hay_base := PackedFloat32Array()
@@ -68,6 +69,9 @@ func _ready() -> void:
 	builds = world.get("builds")
 	player = world.get("player")
 	_avatar_script = load(mp.base_dir + "/mp_avatar.gd")
+	_me = _avatar_script.new()
+	_me.setup_local(player, mp)
+	world.add_child(_me)
 	if field != null:
 		field.cells_redrawn.connect(_on_cells_redrawn)
 	if builds != null:
@@ -91,6 +95,8 @@ func shutdown() -> void:
 	if GameState.needle_discovered.is_connected(_on_needle_discovered):
 		GameState.needle_discovered.disconnect(_on_needle_discovered)
 	clear_avatars()
+	if is_instance_valid(_me):
+		_me.queue_free()
 
 
 # Take the current world as the agreed starting point (nothing to send yet).
