@@ -1,7 +1,14 @@
 # Changelog
 
-## Unreleased
+## v0.9.1
 
+* Items somebody else owns can be picked up again. Their copy was moved by
+  setting its transform, which on a frozen body leaves the collision shape
+  where it was: you saw the bale in front of you while its shape sat back at
+  the spot where it first appeared, so the pick-up ray went straight past it.
+  Copies are now moved the way the game moves a held item, telling the
+  physics server as well, and they are static rather than kinematic so they
+  no longer shove anyone as they follow their owner.
 * A player holding the toy shovel no longer shows a second, floating one to
   everyone else. The toy shovel is a real item even while held, and its copy
   followed the holder's first-person view next to the one in the farmer's

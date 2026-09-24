@@ -140,9 +140,18 @@ func _forget(id: int) -> void:
 func _puppet(item: Node) -> void:
 	item.set_meta("mp_copy", true)
 	item.set_meta(PropManager.META_CLAIM, get_instance_id())
-	item.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	item.freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
 	item.freeze = true
 	item.set_physics_process(false)
+
+
+# Moving a frozen body by its transform alone leaves its collision shape
+# behind, so a copy could be seen but not picked up or bumped into. Tell the
+# physics server as well, the way the game does in Carryable.warp().
+func _place(item: Node, xform: Transform3D) -> void:
+	PhysicsServer3D.body_set_state(item.get_rid(),
+		PhysicsServer3D.BODY_STATE_TRANSFORM, xform)
+	item.global_transform = xform
 
 
 func _release(item: Node) -> void:
@@ -283,9 +292,9 @@ func _smooth(delta: float) -> void:
 			continue
 		var want: Transform3D = _goal[id]
 		var step: Transform3D = it.global_transform.interpolate_with(want, f)
-		it.global_transform = step
+		_place(it, step)
 		if step.origin.distance_to(want.origin) < 0.002:
-			it.global_transform = want
+			_place(it, want)
 			done.append(id)
 	for id in done:
 		_goal.erase(id)
