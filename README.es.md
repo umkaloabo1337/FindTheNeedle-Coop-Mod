@@ -9,7 +9,7 @@ amigos de Steam y tu amigo aparece en tu patio.
 
 > Mod no oficial. Sin relación con el desarrollador del juego ni respaldo suyo.
 > **No incluye ningún archivo del juego**: solo sus propios scripts, que el
-> juego carga al arrancar. English: [README.md](README.md)
+> juego carga al arrancar, y un modelo de jugador libre (CC0). English: [README.md](README.md)
 
 ![El panel de multijugador](screenshots/panel.png)
 
@@ -138,10 +138,18 @@ El mod es GDScript en `mods/multiplayer`: `mp.gd` (sesión y RPCs),
 `mp_avatar.gd` (la figura del otro jugador). No hay nada que compilar: editas
 un archivo y reinicias el juego.
 
+Los otros jugadores son un granjero animado, `mods/multiplayer/models/farmer.glb`,
+que se carga al vuelo con `GLTFDocument` de Godot. El peto y la banda del
+sombrero toman el color del jugador, la cabeza sigue hacia donde mira, las
+piernas se doblan al agacharse y la animación (Idle, Walk, Run) sigue su
+velocidad. Si falta el archivo o no carga, aparece la figura antigua hecha de
+formas básicas. El `.glb` es el original del pack recortado a esas tres
+animaciones con `dev/models/slim_glb.py` (1,3 MB → 500 KB).
+
 Los modelos de herramienta cuelgan de la mano del avatar, en `mp_avatar.gd`.
-Cada modelo se escala a `TOOL_LENGTH` por su eje más largo y se gira para que
-la parte útil apunte lejos de la mano; con `flip_tool` en un avatar se gira
-180 grados, útil al probar un modelo nuevo.
+Cada modelo se escala a su largo real (`TOOL_LENGTHS`) por su eje más largo y
+se gira para que la parte útil apunte lejos de la mano; con `flip_tool` en un
+avatar se gira 180 grados, útil al probar un modelo nuevo.
 
 `dev/mp_test.gd` es el arnés de pruebas: cópialo junto a `mp.gd` y arranca el
 juego con `MP_TEST_AVATAR=user://saves/slot_1.dat` (y `MP_TEST_TOOL=1` para la
@@ -152,6 +160,8 @@ girado.
 
 - Mod de **AleDev11**.
 - *Find The Needle*, de [FindTheNeedleDev](https://x.com/haydeveloper).
+- Modelo del granjero del [Ultimate Modular Men Pack](https://quaternius.com/packs/ultimatemodularcharacters.html),
+  de **Quaternius** — CC0.
 - [GodotSteam GDExtension](https://godotsteam.com) — MIT.
 - Steamworks SDK — © Valve Corporation.
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Remote players are an animated farmer.** A rigged low-poly farmer
+  (Quaternius, CC0) replaces the figure made of primitives. The overalls and
+  the hat band take the player's colour, the head follows the look pitch, the
+  right arm reaches forward with the tool, the knees bend when crouching, and
+  the clip follows the real speed (Walk when slow, Run at walking and sprint
+  speed). The model adds 500 KB; if it is missing, the old figure is used.
+- **Held tools at their real size.** Each tool is scaled to a real-world length
+  instead of 1.2 m for all, so the metal detector is no longer as long as a
+  spade.
+
 ## v0.4.0
 
 - **Installer rewritten as plain batch.** `INSTALL.bat` and `UNINSTALL.bat` no

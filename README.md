@@ -9,7 +9,7 @@ Steam friends list and your friend drops straight into your yard.
 
 > Unofficial mod. Not affiliated with, or endorsed by, the game's developer.
 > It ships **no game files** — only its own scripts, which the game loads at
-> startup. Español: [README.es.md](README.es.md)
+> startup, and a free (CC0) player model. Español: [README.es.md](README.es.md)
 
 ![The multiplayer panel](screenshots/panel.png)
 
@@ -133,10 +133,18 @@ The mod is plain GDScript in `mods/multiplayer`: `mp.gd` (session and RPCs),
 `mp_avatar.gd` (the remote-player figure). Nothing is compiled — edit a file and
 restart the game.
 
+Remote players are an animated farmer, `mods/multiplayer/models/farmer.glb`,
+loaded at runtime with Godot's `GLTFDocument`. The overalls and the hat band
+take the player's colour, the head follows where they look, the legs bend
+when they crouch and the clip (Idle, Walk, Run) follows their speed. If the
+file is missing or fails to load, the old figure made of primitives stands in.
+The `.glb` is the pack's original trimmed to those three clips with
+`dev/models/slim_glb.py` (1.3 MB → 500 KB).
+
 Tool models hang off the avatar's hand in `mp_avatar.gd`. Each model is scaled
-to `TOOL_LENGTH` along its longest axis and turned so its working end points
-away from the hand; set `flip_tool` on an avatar to turn a model 180 degrees
-while testing a new one.
+to its real length (`TOOL_LENGTHS`) along its longest axis and turned so its
+working end points away from the hand; set `flip_tool` on an avatar to turn a
+model 180 degrees while testing a new one.
 
 `dev/mp_test.gd` is a test harness: copy it next to `mp.gd` and start the game
 with `MP_TEST_AVATAR=user://saves/slot_1.dat` (plus `MP_TEST_TOOL=1` for the
@@ -147,6 +155,8 @@ flipped.
 
 - Mod by **AleDev11**.
 - *Find The Needle* by [FindTheNeedleDev](https://x.com/haydeveloper).
+- Farmer model from the [Ultimate Modular Men Pack](https://quaternius.com/packs/ultimatemodularcharacters.html)
+  by **Quaternius** — CC0.
 - [GodotSteam GDExtension](https://godotsteam.com) — MIT.
 - Steamworks SDK — © Valve Corporation.
 
