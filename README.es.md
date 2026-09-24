@@ -61,6 +61,12 @@ Queda un modo por IP directa en "Conexión por IP (avanzado)" como alternativa.
 | F2 | Panel de multijugador |
 | Y | Chat |
 | F8 | Resincronizar el mundo |
+| F6 | Menú de pruebas |
+
+F6 abre el menú de depuración que ya trae el juego: dinero, objetos, desbloqueos
+y árbol de mejoras, más unos botones para quitar dinero. Sirve para montar una
+partida o probar algo. El juego marca la partida que lo usa, así que deja de
+contar para la clasificación.
 
 ## Qué se sincroniza
 
@@ -71,6 +77,9 @@ Queda un modo por IP directa en "Conexión por IP (avanzado)" como alternativa.
 * Las agujas destapadas. Las ve todo el mundo y solo se entregan una vez.
 * Las cargas nuevas de paja, que resincronizan a todos los clientes.
 * Posición, nombre y herramienta de cada jugador.
+* Los objetos sueltos: cubos, sacos, fardos, manojos. Ves lo que los demás
+  cogen, llevan, sueltan y lanzan, y puedes coger tú sus cosas.
+* Lo que va montado en las cintas.
 
 ## Idiomas
 
@@ -82,11 +91,15 @@ juego, así que se leen igual que en el resto de la interfaz.
 
 ## Limitaciones conocidas
 
-* Las máquinas que sacan paja del pajar por su cuenta (rastrillo de pistón,
-  brazo robótico, dron, escáner) solo funcionan en el anfitrión. En los
-  clientes se ven quietas. Es a propósito: ejecutarlas en todas partes contaba
+* Las máquinas que convierten la paja en algo (rastrillo de pistón, brazo
+  robótico, dron, escáner, compresora, pulper, papelera, prensa, envolvedora,
+  silo, peletizadora, lanzadera, compuerta) solo funcionan en el anfitrión.
+  Los clientes reciben las cintas y los objetos que salen de ellas, pero las
+  máquinas se ven quietas. Es a propósito: ejecutarlas en todas partes contaba
   la paja y el dinero dos veces.
-* Los objetos sueltos (cubos, sacos, fardos) son de cada jugador.
+* La paja suelta es local: las briznas que saltan al cavar y la paja que llevas
+  en la horca. Los objetos en los que se convierte (manojos, fardos, pacas) sí
+  se comparten.
 * Los ajustes de las máquinas, como filtros e interruptores, no se sincronizan.
 * Las herramientas compradas son de cada jugador. El dinero es común.
 * Solo guarda el anfitrión. Los clientes no escriben en sus partidas.

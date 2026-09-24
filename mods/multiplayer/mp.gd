@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.7.0"
+const VERSION := "0.8.0"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8
 const WORLD_CHUNK := 60000
@@ -639,6 +639,84 @@ func _rx_needle(kind: String, idx: int, pos: Vector3) -> void:
 func _rx_event(kind: String, data: Dictionary) -> void:
 	if world_sync != null:
 		world_sync.on_event(multiplayer.get_remote_sender_id(), kind, data)
+
+
+# ---------------------------------------------------------------- loose items
+
+func _props() -> Node:
+	if world_sync == null:
+		return null
+	return world_sync.props_sync
+
+
+@rpc("any_peer", "call_remote", "reliable", 7)
+func _rx_prop_add(id: int, item_id: String, xf: Transform3D, state: Dictionary) -> void:
+	var p := _props()
+	if p != null:
+		p.on_add(multiplayer.get_remote_sender_id(), id, item_id, xf, state)
+
+
+@rpc("any_peer", "call_remote", "reliable", 7)
+func _rx_prop_del(ids: PackedInt64Array) -> void:
+	var p := _props()
+	if p != null:
+		p.on_del(ids)
+
+
+@rpc("any_peer", "call_remote", "unreliable_ordered", 8)
+func _rx_prop_move(ids: PackedInt64Array, xfs: Array) -> void:
+	var p := _props()
+	if p != null:
+		p.on_move(multiplayer.get_remote_sender_id(), ids, xfs)
+
+
+@rpc("any_peer", "call_remote", "reliable", 7)
+func _rx_prop_state(ids: PackedInt64Array, states: Array) -> void:
+	var p := _props()
+	if p != null:
+		p.on_state(multiplayer.get_remote_sender_id(), ids, states)
+
+
+@rpc("any_peer", "call_remote", "reliable", 7)
+func _rx_prop_claim(id: int) -> void:
+	var p := _props()
+	if p != null:
+		p.on_claim(multiplayer.get_remote_sender_id(), id)
+
+
+@rpc("any_peer", "call_remote", "reliable", 7)
+func _rx_prop_want(ids: PackedInt64Array) -> void:
+	var p := _props()
+	if p != null:
+		p.on_want(multiplayer.get_remote_sender_id(), ids)
+
+
+@rpc("any_peer", "call_remote", "reliable", 7)
+func _rx_prop_census(ids: PackedInt64Array) -> void:
+	var p := _props()
+	if p != null:
+		p.on_census(multiplayer.get_remote_sender_id(), ids)
+
+
+@rpc("authority", "call_remote", "reliable", 7)
+func _rx_prop_reset(first: bool, ids: PackedInt64Array, owners: PackedInt32Array, entries: Array) -> void:
+	var p := _props()
+	if p != null:
+		p.on_reset(first, ids, owners, entries)
+
+
+@rpc("authority", "call_remote", "reliable", 7)
+func _rx_prop_reset_end() -> void:
+	var p := _props()
+	if p != null:
+		p.on_reset_end()
+
+
+@rpc("authority", "call_remote", "reliable", 9)
+func _rx_belts(packed: PackedByteArray, raw_size: int) -> void:
+	if world_sync == null or world_sync.belts_sync == null:
+		return
+	world_sync.belts_sync.on_belts(packed, raw_size)
 
 
 # ---------------------------------------------------------------- settings

@@ -91,6 +91,18 @@ func _process(delta: float) -> void:
 		if wt > 20.0 and not _did.has("act2") and role == "join":
 			_did["act2"] = true
 			_act_remove()
+		if wt > 15.0 and not _did.has("props"):
+			_did["props"] = true
+			_act_props()
+		if wt > 26.0 and not _did.has("props2"):
+			_did["props2"] = true
+			_act_props_move()
+		if wt > 30.0 and not _did.has("belt") and role == "host":
+			_did["belt"] = true
+			_act_belt()
+		if wt > 34.0 and not _did.has("belt_shot"):
+			_did["belt_shot"] = true
+			_look_at_belt()
 		if wt > 8.0 and not _did.has("shot_world"):
 			_did["shot_world"] = true
 			_look_at_avatar()
@@ -146,10 +158,104 @@ func _act_remove() -> void:
 		ws.builds.demolish(d)
 
 
+# each side drops an item of its own, then we check both lists match
+func _act_props() -> void:
+	var ws: Node = mp.world_sync
+	var props: Node = ws.world.get("props")
+	var id := "bucket" if role == "host" else "hay_bale"
+	var it: Variant = props.spawn_at_feet(id, ws.player)
+	print("[MPTEST] %s spawned %s -> %s" % [role, id, it != null])
+
+
+func _act_props_move() -> void:
+	var ws: Node = mp.world_sync
+	var ps: Node = ws.props_sync
+	for pid in ps._by_id:
+		if not ps._mine(pid):
+			continue
+		var it: Node3D = ps._by_id[pid]
+		if not is_instance_valid(it):
+			continue
+		it.global_position += Vector3(0.0, 1.5, 0.0)
+		print("[MPTEST] %s nudged prop %d (%s) to %s" % [role, pid, it.item_id, it.global_position])
+		return
+
+
+# a belt with a few wads on it: the client should end up with the same ride
+func _act_belt() -> void:
+	var ws: Node = mp.world_sync
+	var a: Vector3 = ws.world._seat(Vector3(6.0, 0.0, 8.0)) + Vector3.UP * 1.2
+	var b: Vector3 = ws.world._seat(Vector3(12.0, 0.0, 8.0)) + Vector3.UP * 1.2
+	var conv: Node = ws.builds.add_conveyor(a, b)
+	await get_tree().process_frame
+	var n := 0
+	for i in 5:
+		if conv.run.board(0, 20, -1, 0.25, 0.0, 0.0, 0.6 * float(i + 1), 0.0, {}, -1, false):
+			n += 1
+	print("[MPTEST] host laid a conveyor and boarded %d wads, run=%d" % [n, conv.run.count()])
+
+
+# both sides look at the belt, so the screenshots can be put side by side
+func _look_at_belt() -> void:
+	var ws: Node = mp.world_sync
+	var p: Node3D = ws.player
+	var mid: Vector3 = ws.world._seat(Vector3(9.0, 0.0, 8.0)) + Vector3.UP * 1.2
+	# not the same spot on both sides, or one camera ends up inside the other
+	# player's farmer
+	var side := -0.8 if role == "host" else 0.8
+	var from: Vector3 = ws.world._seat(Vector3(9.0 + side, 0.0, 2.5)) + Vector3.UP * 0.4
+	p.global_position = from
+	var d := mid - from
+	p.set_look(atan2(-d.x, -d.z), -0.12)
+	await get_tree().create_timer(1.5).timeout
+	await _shot("belt")
+	var riders := 0
+	for b in BeltPath._live:
+		if is_instance_valid(b) and b.is_inside_tree():
+			riders += b.run.count()
+	print("[MPTEST] %s sees %d riders on the belts" % [role, riders])
+
+
+func _props_line() -> String:
+	var ws: Node = mp.world_sync
+	var ps: Variant = ws.props_sync
+	if ps == null:
+		return "props=?"
+	var mine := 0
+	var copies := 0
+	for pid in ps._by_id:
+		if ps._mine(pid):
+			mine += 1
+		else:
+			copies += 1
+	var total: int = ws.world.get("props").items.size()
+	var paths := 0
+	var riders := 0
+	for b in BeltPath._live:
+		if not is_instance_valid(b) or not b.is_inside_tree():
+			continue
+		paths += 1
+		riders += b.run.count()
+	var tally := {}
+	for it in ws.world.get("props").items:
+		if is_instance_valid(it):
+			tally[it.item_id] = int(tally.get(it.item_id, 0)) + 1
+	var ids: Array = tally.keys()
+	ids.sort()
+	var parts: Array = []
+	for k in ids:
+		parts.append("%s:%d" % [k, tally[k]])
+	return "props=%d tracked=%d mine=%d copies=%d belts=%d riders=%d [%s]" % [
+		total, ps._by_id.size(), mine, copies, paths, riders, ",".join(parts)]
+
+
 func _report() -> void:
 	var ws: Node = mp.world_sync
 	if ws == null:
-		print("[MPTEST] phase=%d players=%d scene=%s" % [mp.phase, mp.players.size(), str(get_tree().current_scene.name) if get_tree().current_scene else "-"])
+		var cs: Node = get_tree().current_scene
+		print("[MPTEST] phase=%d players=%d scene=%s world=%s built=%s watch=%s" % [
+			mp.phase, mp.players.size(), str(cs.name) if cs else "-",
+			mp.is_world(cs), cs.get("_built") if cs else "-", mp._world_watch != null])
 		return
 	var h: PackedFloat32Array = ws.field.heights
 	var sum := 0.0
@@ -160,8 +266,8 @@ func _report() -> void:
 	for b in ws._live().needles:
 		if is_instance_valid(b):
 			nn += 1
-	print("[MPTEST] needles=%d money=%.2f hay_total=%.1f hay_dug=%.1f heights_sum=%.3f builds=%d avatars=%d tech=%d players=%d" % [
-		nn, GameState.money, GameState.hay_total, GameState.hay_dug, sum, nb, ws.avatars.size(), Tech.ranks.size(), mp.players.size()])
+	print("[MPTEST] needles=%d money=%.2f hay_total=%.1f hay_dug=%.1f heights_sum=%.3f builds=%d avatars=%d tech=%d players=%d %s" % [
+		nn, GameState.money, GameState.hay_total, GameState.hay_dug, sum, nb, ws.avatars.size(), Tech.ranks.size(), mp.players.size(), _props_line()])
 
 
 # both players meet at the (open) new-game spawn; the client looks at the host
@@ -234,5 +340,15 @@ func _show_avatar() -> void:
 	await get_tree().create_timer(2.0).timeout
 	await _shot("tool%d" % tool_id)
 	print("[MPTEST] tool shot done for tool %d" % tool_id)
+	mp.host_steam()
+	await get_tree().create_timer(5.0).timeout
+	ws.player.set_look(ws.player.rotation.y, -1.15)
+	await get_tree().create_timer(1.5).timeout
+	await _shot("firstperson")
+	mp.ui._toggle_debug_menu()
+	await get_tree().create_timer(1.5).timeout
+	await _shot("debugmenu")
+	var dm: Variant = ws.world.get("debug_menu")
+	print("[MPTEST] debug menu open=%s" % (dm != null and dm.is_open()))
 	_clear_sentinel()
 	get_tree().quit()

@@ -19,7 +19,13 @@ const STATE_TICK := 0.25
 
 # Buildings that feed themselves from the pile or the world. On clients these
 # stay frozen so nothing is dug, scanned or sold twice (the host runs them).
-const CLIENT_FROZEN := ["piston_rakes", "robotic_arms", "hay_drones", "scanners"]
+# Machines that take hay out of the pile or off a belt and turn it into
+# something. They run on the host only: the belts and the items they make are
+# sent out, so running them twice would just duplicate the work. Conveyors,
+# lifts, generators and the rest of the yard keep running everywhere.
+const CLIENT_FROZEN := ["piston_rakes", "robotic_arms", "hay_drones", "scanners",
+	"compressors", "pulpers", "papers", "briquette_presses", "wrappers", "silos",
+	"pelletizers", "tube_launchers", "dump_hatches", "needle_radars"]
 
 const BUILD_ARRAYS := ["conveyors", "corners", "water_mains", "water_splitters",
 	"robotic_arms", "platforms", "stairs", "railings", "walls", "roofs", "scanners",
@@ -40,6 +46,8 @@ const HOST_MAX := ["mission_index", "contract_index"]
 var avatars := {}
 var _avatar_script: Script
 var _me: Node  # our own body, seen when looking down
+var props_sync: Node  # loose item replication
+var belts_sync: Node  # what is riding on the belts
 var _pose_t := 0.0
 
 var _hay_base := PackedFloat32Array()
@@ -72,6 +80,14 @@ func _ready() -> void:
 	_me = _avatar_script.new()
 	_me.setup_local(player, mp)
 	world.add_child(_me)
+	props_sync = (load(mp.base_dir + "/mp_props.gd") as Script).new()
+	props_sync.name = "MPProps"
+	add_child(props_sync)
+	props_sync.start(mp, world)
+	belts_sync = (load(mp.base_dir + "/mp_belts.gd") as Script).new()
+	belts_sync.name = "MPBelts"
+	add_child(belts_sync)
+	belts_sync.start(mp, world)
 	if field != null:
 		field.cells_redrawn.connect(_on_cells_redrawn)
 	if builds != null:
@@ -94,6 +110,10 @@ func shutdown() -> void:
 		GameState.needle_found.disconnect(_on_needle_found)
 	if GameState.needle_discovered.is_connected(_on_needle_discovered):
 		GameState.needle_discovered.disconnect(_on_needle_discovered)
+	if props_sync != null and is_instance_valid(props_sync):
+		props_sync.shutdown()
+	if belts_sync != null and is_instance_valid(belts_sync):
+		belts_sync.shutdown()
 	clear_avatars()
 	if is_instance_valid(_me):
 		_me.queue_free()
@@ -136,6 +156,8 @@ func place_at_spawn() -> void:
 
 func apply_session_rules() -> void:
 	mp._mp_guard_online_services()
+	if props_sync != null and is_instance_valid(props_sync):
+		props_sync.session_started()
 	if not mp.is_host:
 		SaveManager.block_save = true
 		if "autosave_enabled" in world:
@@ -221,6 +243,8 @@ func clear_avatars() -> void:
 
 
 func forget_peer(id: int) -> void:
+	if props_sync != null and is_instance_valid(props_sync):
+		props_sync.peer_gone(id)
 	_peer_ack.erase(id)
 
 
@@ -711,6 +735,10 @@ func send_full_sync(pid: int) -> void:
 		if _needles[idx] == "away" and not bodies.has(idx):
 			needles.append([idx, Vector3.ZERO, true])
 	mp._rx_full_sync.rpc_id(pid, field.heights, builds.to_array(), Tech.to_dict(), needles)
+	if props_sync != null and is_instance_valid(props_sync):
+		props_sync.send_all(pid)
+	if belts_sync != null and is_instance_valid(belts_sync):
+		belts_sync.send_all(pid)
 
 
 func on_full_sync(heights: PackedFloat32Array, host_builds: Array, tech: Dictionary, needles: Array = []) -> void:

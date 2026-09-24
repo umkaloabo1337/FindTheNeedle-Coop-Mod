@@ -345,9 +345,73 @@ func _input(event: InputEvent) -> void:
 	elif k == KEY_Y and mp.active() and mp.in_world() and not _root.visible:
 		_open_chat()
 		get_viewport().set_input_as_handled()
+	elif k == KEY_F6 and mp.in_world():
+		_toggle_debug_menu()
+		get_viewport().set_input_as_handled()
 	elif k == KEY_F8 and mp.active():
 		mp.request_resync()
 		get_viewport().set_input_as_handled()
+
+
+# The game ships a debug menu (money, items, unlocks, tech, needles) that it
+# only builds once it has been unlocked in game. Build it ourselves and put it
+# on F6, so a session can be set up without grinding for hay first.
+func _toggle_debug_menu() -> void:
+	var w: Node = mp.world_sync.world
+	var dm: Variant = w.get("debug_menu")
+	if dm == null or not is_instance_valid(dm):
+		var cls := _global_class("DebugMenu")
+		if cls == null:
+			notify("This build has no debug menu.")
+			return
+		dm = cls.new()
+		dm.name = "DebugMenu"
+		dm.player = w.get("player")
+		dm.world = w
+		dm.props = w.get("props")
+		dm.hud = w.get("hud")
+		dm.live = w.get("live")
+		dm.builds = w.get("builds")
+		add_child(dm)
+		w.set("debug_menu", dm)
+		_add_take_money(dm)
+	dm.toggle()
+	if dm.is_open():
+		_release_mouse()
+	else:
+		_restore_mouse()
+
+
+# The menu only hands out money. Put the other direction next to it, on the
+# same row, so a session can be set back to being poor as well.
+func _add_take_money(dm: Node) -> void:
+	var row := _find_money_row(dm)
+	if row == null:
+		return
+	for amount in [100.0, 1000.0, 10000.0]:
+		var label := "-$%s" % _money_text(amount)
+		row.add_child(dm._button(label, dm._on_grant.bind(-amount)))
+
+
+func _find_money_row(n: Node) -> Node:
+	for child in n.get_children():
+		if child is HBoxContainer:
+			for b in child.get_children():
+				if b is Button and (b as Button).text.begins_with("+$"):
+					return child
+		var found := _find_money_row(child)
+		if found != null:
+			return found
+	return null
+
+
+func _money_text(amount: float) -> String:
+	var n := int(amount)
+	var out := ""
+	while n >= 1000:
+		out = ",%03d%s" % [n % 1000, out]
+		n /= 1000
+	return "%d%s" % [n, out]
 
 
 func _world_player() -> Node:

@@ -1,4 +1,4 @@
-MOD COOPERATIVO PARA FIND THE NEEDLE  v0.7.0
+MOD COOPERATIVO PARA FIND THE NEEDLE  v0.8.0
 =============================================
 
 Mod no oficial. Todos los jugadores necesitan el juego (la demo, gratis en
@@ -35,7 +35,11 @@ Anfitrion: MULTIPLAYER, CREAR PARTIDA, INVITAR AMIGOS, y luego empieza o carga
 una partida como siempre. Los demas aceptan la invitacion de Steam. Si tienen
 el juego cerrado, Steam lo abre y los mete dentro.
 
-Teclas:  F2 panel   Y chat   F8 resincronizar el mundo
+Teclas:  F2 panel   Y chat   F8 resincronizar   F6 menu de pruebas
+
+F6 abre el menu de depuracion que ya trae el juego (dinero, objetos, mejoras,
+arbol de tecnologia). Sirve para montar una partida o probar cosas. El juego
+marca la partida que lo usa, asi que deja de contar para la clasificacion.
 
 IDIOMAS
 -------
@@ -52,13 +56,20 @@ QUE SE COMPARTE
   - Las agujas destapadas. Las ve todo el mundo y cuentan una vez.
   - Las cargas nuevas de paja, que resincronizan a todos.
   - Posicion, nombre y herramienta de cada jugador.
+  - Los objetos sueltos: cubos, sacos, fardos, manojos. Ves lo que los demas
+    cogen, llevan, sueltan y lanzan, y puedes coger tu sus cosas.
+  - Lo que va montado en las cintas.
 
 LIMITACIONES CONOCIDAS
 ----------------------
-  - Las maquinas que sacan paja del pajar por su cuenta (rastrillo de piston,
-    brazo robotico, dron, escaner) solo funcionan en el anfitrion; en los
-    clientes se ven quietas.
-  - Los objetos sueltos (cubos, sacos, fardos) son de cada jugador.
+  - Las maquinas que convierten la paja en algo (rastrillo de piston, brazo
+    robotico, dron, escaner, compresora, pulper, papelera, prensa,
+    envolvedora, silo, peletizadora, lanzadera, compuerta) solo funcionan en
+    el anfitrion. Los clientes reciben las cintas y los objetos que salen de
+    ellas, pero las maquinas se ven quietas. Hacerlas funcionar en todas
+    partes contaba la paja y el dinero dos veces.
+  - La paja suelta es local: lo que salta al cavar y la paja de la horca. Los
+    objetos en los que se convierte (manojos, fardos, pacas) si se comparten.
   - Los ajustes de las maquinas no se sincronizan.
   - Las herramientas compradas son de cada jugador. El dinero es comun.
   - Solo guarda el anfitrion. Los clientes no escriben en sus partidas.

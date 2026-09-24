@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.8.0
+
+* Loose items are shared. Buckets, sacks, bales and wads now exist once for
+  the whole session: whoever made an item sends where it is, and picking up
+  someone else's item hands it over to you. Items that a remote player owns
+  are held still locally, so the yard cleaner and the machines leave them
+  alone.
+* Belt contents are shared. The host sends the ride list a few times a second
+  and clients board it on their own belts, which keep turning in between, so
+  the boxes and bales move instead of jumping.
+* More machines are host-only, now that the belts and the items they make
+  arrive over the wire: compressor, pulper, paper machine, briquette press,
+  wrapper, silo, pelletizer, tube launcher, dump hatch and needle radar join
+  the rake, the arm, the drone and the scanner. Running them on both sides
+  would have turned the same hay into two bales.
+* F6 opens the game's own debug menu, with buttons added for taking money
+  away as well as granting it. Handy for setting up a session. The game marks
+  a run that used it, so it no longer counts for the leaderboards.
+
 ## v0.7.0
 
 * Remote players stand straight when idle. The old idle clip had the hips
