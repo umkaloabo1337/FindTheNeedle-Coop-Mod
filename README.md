@@ -157,6 +157,7 @@ mods/multiplayer/     what ships in the release
 dev/mp_test.gd        test harness, not shipped
 dev/avatar_calib.gd   live avatar height tuning, not shipped
 dev/tool_poser.gd     place held tools on the farmer by hand, not shipped
+dev/tool_poser.bat    starts the game with the tool poser
 dev/models/           tooling used to prepare the model
 docs/                 Nexus page copy
 ```
@@ -190,7 +191,8 @@ and save them with F9. How to enable it is at the top of the file.
 the tool you pick (1-6), and you move, turn and resize it with the keys, the
 mouse or the sliders on the right, while previewing looking up and down,
 walking and crouching. F9 writes `tool_poses.cfg` into the mod folder. The keys
-are listed at the top of the file.
+are listed at the top of the file. `dev/tool_poser.bat` starts the game with it
+and puts `override.cfg` back when you close the game.
 
 ## Credits
 

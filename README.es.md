@@ -161,6 +161,7 @@ mods/multiplayer/     lo que va en la release
 dev/mp_test.gd        arnés de pruebas, no se distribuye
 dev/avatar_calib.gd   ajuste en vivo de la altura del avatar, no se distribuye
 dev/tool_poser.gd     colocar a mano las herramientas del granjero, no se distribuye
+dev/tool_poser.bat    abre el juego con el posicionador
 dev/models/           herramientas para preparar el modelo
 docs/                 textos de la página de Nexus
 ```
@@ -195,7 +196,8 @@ guardarlos con F9. Cómo activarlo está al principio del archivo.
 herramienta que elijas (1-6) y la mueves, giras y cambias de tamaño con las
 teclas, el ratón o los deslizadores de la derecha, viendo cómo queda al mirar
 arriba y abajo, al andar y al agacharse. F9 escribe `tool_poses.cfg` en la
-carpeta del mod. Las teclas están al principio del archivo.
+carpeta del mod. Las teclas están al principio del archivo. `dev/tool_poser.bat`
+abre el juego con ella y deja `override.cfg` como estaba al cerrarlo.
 
 ## Créditos
 
