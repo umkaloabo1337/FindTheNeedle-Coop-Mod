@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.8.0"
+const VERSION := "0.9.0"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8
 const WORLD_CHUNK := 60000

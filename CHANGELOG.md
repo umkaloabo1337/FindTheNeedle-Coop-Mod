@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.0
 
 * Held tools are placed by hand. Each of the six tools has its own position,
   angle and length in the farmer's hand (`tool_poses.cfg`) instead of the
