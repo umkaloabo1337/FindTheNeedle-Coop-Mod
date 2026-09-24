@@ -19,6 +19,10 @@ const MOVE_BUDGET := 60
 const STATE_BUDGET := 20
 const RESET_BATCH := 30
 const SMOOTH := 16.0
+# tool items and the avatar tool that draws them, see _hide_held_tools
+const TOOL_ITEMS := {"spade": 1, "pitchfork": 2, "broom": 3, "sand_shovel": 4,
+	"metal_detector": 5, "yard_vac": 6}
+const HELD_TICK := 0.2
 
 var mp: Node
 var world: Node
@@ -36,6 +40,8 @@ var _busy := false   # we are the ones touching the prop list, do not echo it
 var _move_t := 0.0
 var _state_t := 0.0
 var _census_t := 0.0
+var _held_t := 0.0
+var _hidden := {}   # mp id -> true while we hide a copy someone is carrying
 var _log := OS.get_environment("MP_DEBUG_PROPS") != ""  # dev tracing
 
 
@@ -74,6 +80,9 @@ func shutdown() -> void:
 		var it: Variant = _by_id[id]
 		if it != null and is_instance_valid(it):
 			_release(it)
+			if _hidden.has(id):
+				it.visible = true
+	_hidden.clear()
 	_by_id.clear()
 	_owner.clear()
 	_goal.clear()
@@ -118,6 +127,7 @@ func _adopt(item: Node, id: int, owner: int) -> void:
 
 
 func _forget(id: int) -> void:
+	_hidden.erase(id)
 	_by_id.erase(id)
 	_owner.erase(id)
 	_sent.erase(id)
@@ -208,6 +218,10 @@ func _state_of(item: Node) -> Dictionary:
 
 func _process(delta: float) -> void:
 	_smooth(delta)
+	_held_t += delta
+	if _held_t >= HELD_TICK:
+		_held_t = 0.0
+		_hide_held_tools()
 	if mp == null or not mp.active() or multiplayer.multiplayer_peer == null:
 		return
 	if multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
@@ -226,6 +240,33 @@ func _process(delta: float) -> void:
 	if _census_t >= CENSUS_TICK:
 		_census_t = 0.0
 		_census_tick()
+
+
+# A tool somebody else is carrying floats in front of their first-person view,
+# but their farmer already draws it in its hand, so hide that copy while it's
+# up there. Tools lying around, and every other item, stay visible.
+func _hide_held_tools() -> void:
+	var ws: Variant = mp.world_sync if mp != null else null
+	var avatars: Dictionary = ws.avatars if ws != null and is_instance_valid(ws) else {}
+	for id in _by_id:
+		var it: Variant = _by_id[id]
+		if it == null or not is_instance_valid(it):
+			continue
+		var tool: int = TOOL_ITEMS.get(String(it.item_id), 0)
+		if tool == 0:
+			continue
+		var hide := false
+		if not _mine(id):
+			var av: Variant = avatars.get(int(_owner.get(id, 0)))
+			if av != null and is_instance_valid(av) and int(av.get("_tool")) == tool:
+				var off: Vector3 = it.global_position - av.global_position
+				hide = off.y > 0.5 and Vector2(off.x, off.z).length() < 2.0
+		if hide and not _hidden.has(id):
+			_hidden[id] = true
+			it.visible = false
+		elif not hide and _hidden.has(id):
+			_hidden.erase(id)
+			it.visible = true
 
 
 # Remote copies ease towards the last position we heard about instead of
