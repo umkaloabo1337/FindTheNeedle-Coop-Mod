@@ -38,6 +38,21 @@ const TINTS := {"LightBlue": 0.25, "Red": 0.0}  # overalls, hat band
 const LOCAL_BACK := 0.25
 const LOCAL_CROUCH_BACK := 0.2
 
+# wheelbarrow being pushed: the game's model, mounted the way its item does it
+const BARROW_MODEL := "res://assets/models/wheelbarrow.glb"
+const BARROW_SCALE := 0.688
+const BARROW_YAW := -PI * 0.5
+const BARROW_SECTION := "wheelbarrow"  # in tool_poses.cfg
+# where it sits from the avatar's feet (same axes as the avatar: -Z ahead),
+# nose down on its wheel and the handles up at hand height. the poser saves
+# its own over this
+const BARROW_POS := Vector3(0.0, 0.203, -0.902)
+const BARROW_ROT := Vector3(-18.7, 0.0, 0.0)
+# handle grips in the barrow's own space, used when the model can't be read
+const BARROW_GRIPS := [Vector3(-0.315, 0.562, 0.763), Vector3(0.315, 0.562, 0.763)]
+const BARROW_AXLE := Vector3(0.0, 0.166, -0.605)
+const BARROW_LEAN := 0.3
+
 var _target_pos := Vector3.ZERO
 var _target_yaw := 0.0
 var _target_pitch := 0.0
@@ -62,6 +77,9 @@ var _color := Color.WHITE
 static var _model_cache := {}
 static var _poses := {}
 static var _poses_tried := false
+static var _grips: Array = []
+var _barrow: Node3D  # wheelbarrow they're pushing, we place it, see push_item
+var _barrow_pose := {}
 
 # farmer only
 var _skel: Skeleton3D
@@ -75,6 +93,8 @@ var _b_palm := -1
 var _b_body := -1
 var _b_hips := -1
 var _legs: Array = []  # [thigh, shin, foot, thigh len, shin len]
+var _arms: Array = []  # [upper, lower, upper len, lower len to the palm, bones to reset]
+var _arms_bent := false
 static var _farmer: PackedScene
 static var _farmer_tried := false
 
@@ -178,6 +198,20 @@ func _build_farmer() -> bool:
 		var kn := _skel.get_bone_global_rest(shin).origin
 		var f := _skel.get_bone_global_rest(foot).origin
 		_legs.append([thigh, shin, foot, h.distance_to(kn), kn.distance_to(f)])
+	# arms reach for the wheelbarrow handles, the palm lands on the grip
+	for side in ["L", "R"]:
+		var up := _skel.find_bone("UpperArm." + side)
+		var lo := _skel.find_bone("LowerArm." + side)
+		var wr := _skel.find_bone("Wrist." + side)
+		var palm := _skel.find_bone("Middle1." + side)
+		if palm < 0:
+			palm = wr
+		if up < 0 or lo < 0 or palm < 0:
+			continue
+		var sh := _skel.get_bone_global_rest(up).origin
+		var el := _skel.get_bone_global_rest(lo).origin
+		var pa := _skel.get_bone_global_rest(palm).origin
+		_arms.append([up, lo, sh.distance_to(el), el.distance_to(pa), [up, lo, wr]])
 
 	# feet on the ground, facing -Z like the player
 	var box := _aabb(model, Transform3D.IDENTITY)
@@ -243,8 +277,14 @@ func _animate_farmer(delta: float) -> void:
 			_anim.speed_scale = clampf(_moving / RUN_CLIP_SPEED, 0.8, 2.0)
 		_:
 			_anim.speed_scale = 1.0
+	var pushing := _pushing()
 	# not every clip keys these, so reset them or last frame's pose sticks
-	for b in [_b_head, _b_upper, _b_lower, _b_body, _b_hips]:
+	var bones := [_b_head, _b_upper, _b_lower, _b_body, _b_hips]
+	if pushing or _arms_bent:
+		for arm in _arms:
+			bones.append_array(arm[4])
+	_arms_bent = pushing
+	for b in bones:
 		if b >= 0:
 			_skel.reset_bone_pose(b)
 	for leg in _legs:
@@ -258,10 +298,18 @@ func _animate_farmer(delta: float) -> void:
 	if _crouch_now > 0.01:
 		lean = CROUCH_LEAN * _crouch_now
 		_crouch_legs(_crouch_now, right)
+	if pushing:
+		# leaning into it
+		lean += BARROW_LEAN
+		if _b_hips >= 0:
+			_turn_bone(_b_hips, right, -BARROW_LEAN)
 	if _b_head >= 0:
 		# undo the lean so the head still looks where they look
 		_turn_bone(_b_head, right, clampf(_pitch, -0.7, 0.7) + lean)
-	var holding := _tool_node != null
+	if pushing:
+		_place_barrow()
+		_reach_grips(right)
+	var holding := _tool_node != null and not pushing
 	if holding and _b_upper >= 0 and _b_lower >= 0:
 		# elbow by the side, forearm out front
 		_aim_bone(_b_upper, fwd.rotated(right, -1.05 + _pitch * 0.25))
@@ -318,6 +366,30 @@ func _crouch_legs(amount: float, right: Vector3) -> void:
 		var knee := hip + dir.rotated(axis, a) * t
 		_aim_bone_local(leg[0], knee - hip)
 		_aim_bone_local(leg[1], foot - _skel.get_bone_global_pose(leg[1]).origin)
+
+
+# both palms on the wheelbarrow handles, same two-bone fit as the legs with
+# the elbows bent down and out
+func _reach_grips(right: Vector3) -> void:
+	var s := _barrow_size()
+	var xf := _barrow.global_transform
+	var to_skel := _skel.global_transform.affine_inverse()
+	for arm in _arms:
+		var sh := _skel.get_bone_global_pose(arm[0]).origin
+		var on_right := right.dot(_skel.global_transform * sh - global_position) > 0.0
+		var grip: Vector3 = _barrow_pose.grip_r if on_right else _barrow_pose.grip_l
+		var goal := to_skel * (xf * (grip * s))
+		var out := right if on_right else -right
+		var pole := (to_skel.basis * (Vector3.DOWN + out * 0.8 + global_basis.z * 0.3)).normalized()
+		var t: float = arm[2]
+		var l: float = arm[3]
+		var d := clampf(sh.distance_to(goal), absf(t - l) + 0.0001, t + l - 0.0001)
+		var dir := (goal - sh).normalized()
+		pole = (pole - dir * pole.dot(dir)).normalized()
+		var a := acos(clampf((t * t + d * d - l * l) / (2.0 * t * d), -1.0, 1.0))
+		var elbow := sh + (dir * cos(a) + pole * sin(a)) * t
+		_aim_bone_local(arm[0], elbow - sh)
+		_aim_bone_local(arm[1], goal - _skel.get_bone_global_pose(arm[1]).origin)
 
 
 # rot is in skeleton space
@@ -450,14 +522,20 @@ func _process(delta: float) -> void:
 	rotation.y = lerp_angle(rotation.y, _target_yaw, k)
 	_pitch = lerpf(_pitch, _target_pitch, k)
 	_crouch_now = lerpf(_crouch_now, _crouch, k)
+	if _tool_node != null:
+		# both hands are on the wheelbarrow
+		_tool_node.visible = not _pushing()
 	if _skel != null:
 		_animate_farmer(delta)
 		_label.position.y = EYE + 0.55 - crouch_drop * _crouch_now
 	else:
 		_body.scale.y = 1.0 - 0.3 * _crouch_now
 		_animate_figure(delta, k)
+		if _pushing():
+			_place_barrow()
 	var tool_txt: String = TOOL_NAMES[_tool] if _tool >= 0 and _tool < TOOL_NAMES.size() else ""
-	_label.text = _name if tool_txt == "" or _tool == 0 else "%s\n[%s]" % [_name, tr(tool_txt)]
+	# no tool in the tag while both hands are on the barrow
+	_label.text = _name if tool_txt == "" or _tool == 0 or _pushing() else "%s\n[%s]" % [_name, tr(tool_txt)]
 
 
 func _follow_player(delta: float) -> void:
@@ -583,6 +661,13 @@ static func _load_poses(dir: String) -> Dictionary:
 		push_warning("[MPMod] could not read %s (error %d), tools use the automatic fit" % [path, err])
 		return _poses
 	for sec in cfg.get_sections():
+		if sec == BARROW_SECTION:
+			var bp := _read_barrow(cfg)
+			if bp.is_empty():
+				push_warning("[MPMod] bad [%s] in %s, using the default" % [sec, path])
+			else:
+				_poses[BARROW_SECTION] = bp
+			continue
 		var id := sec.trim_prefix("tool_")
 		if not sec.begins_with("tool_") or not id.is_valid_int():
 			continue
@@ -623,6 +708,150 @@ func set_tool_pose(tool: int, pose: Dictionary) -> void:
 			poses[tool].crouch = {"pos": cr.pos, "rot": cr.rot, "length": float(cr.length)}
 	if tool == _tool:
 		_set_tool_model(tool)
+
+
+# ---------------------------------------------------------------- wheelbarrow
+
+# the wheelbarrow copy they're pushing (mp_props hands it over), null when
+# they let go. while set we place it every frame and hold it by the handles
+func push_item(item: Node3D) -> void:
+	_barrow = item
+	if item != null:
+		_barrow_pose = barrow_pose()
+
+
+func _pushing() -> bool:
+	return _barrow != null and is_instance_valid(_barrow) and _barrow.is_inside_tree()
+
+
+# barrow upgrades make the item bigger, the game scales its model by this
+func _barrow_size() -> float:
+	return float(_barrow.call("size_scale")) if _barrow.has_method("size_scale") else 1.0
+
+
+# from our feet by its pose. a bigger one grows around its handles so they
+# stay in the hands
+func _place_barrow() -> void:
+	var p := _barrow_pose
+	var c := _crouch_now
+	var pos: Vector3 = p.pos
+	var b := Basis.from_euler(p.rot * PI / 180.0)
+	if p.has("pos_crouch") and c > 0.001:
+		# its own crouch pose, eased into like the tools
+		var qc := Basis.from_euler(p.rot_crouch * PI / 180.0).get_rotation_quaternion()
+		b = Basis(b.get_rotation_quaternion().slerp(qc, c))
+		pos = pos.lerp(p.pos_crouch, c)
+	var mid: Vector3 = (p.grip_l + p.grip_r) * 0.5
+	var xf := Transform3D(b, pos + b * (mid * (1.0 - _barrow_size())))
+	if c > 0.01 and not p.has("pos_crouch"):
+		# crouched, it tips back down onto its legs around the wheel
+		var axle := xf * (BARROW_AXLE * _barrow_size())
+		var tip := Basis(Vector3.RIGHT, -deg_to_rad(p.rot.x) * c)
+		xf = Transform3D(tip, axle - tip * axle) * xf
+	_barrow.global_transform = global_transform * xf
+
+
+# [wheelbarrow] in tool_poses.cfg:
+#   pos=Vector3(0, 0.2, -0.9)    # its origin from the avatar's feet, metres
+#   rot=Vector3(-18, 0, 0)       # degrees
+#   grip_l=Vector3(...)          # optional, handle grips in the barrow's own
+#   grip_r=Vector3(...)          # space. found on the model when missing
+#   pos_crouch / rot_crouch      # optional crouch pose, else it just tips back
+# filled=false gives just what was saved
+func barrow_pose(filled := true) -> Dictionary:
+	var p: Dictionary = _load_poses(get_script().resource_path.get_base_dir()).get(BARROW_SECTION, {}).duplicate()
+	if not filled:
+		return p
+	if not p.has("pos"):
+		p.pos = BARROW_POS
+		p.rot = BARROW_ROT
+	if not p.has("grip_l"):
+		var g := barrow_grips()
+		p.grip_l = g[0]
+		p.grip_r = g[1]
+	return p
+
+
+# live editing from dev/tool_poser.gd, an empty pose goes back to the default
+func set_barrow_pose(pose: Dictionary) -> void:
+	var poses := _load_poses(get_script().resource_path.get_base_dir())
+	if pose.is_empty():
+		poses.erase(BARROW_SECTION)
+	else:
+		poses[BARROW_SECTION] = pose.duplicate()
+	_barrow_pose = barrow_pose()
+
+
+static func _read_barrow(cfg: ConfigFile) -> Dictionary:
+	var out := {}
+	for k in ["pos", "rot", "grip_l", "grip_r", "pos_crouch", "rot_crouch"]:
+		# a null default makes godot complain about every missing key
+		if not cfg.has_section_key(BARROW_SECTION, k):
+			continue
+		var v: Variant = cfg.get_value(BARROW_SECTION, k)
+		if v is Vector3 and v.is_finite():
+			out[k] = v
+		elif v != null:
+			return {}
+	# pos and rot go together, and so do the grips
+	if out.has("pos") != out.has("rot") or out.has("grip_l") != out.has("grip_r") 			or out.has("pos_crouch") != out.has("rot_crouch"):
+		return {}
+	return out
+
+
+# the game's model, mounted like its item does it
+static func barrow_model() -> Node3D:
+	if not ResourceLoader.exists(BARROW_MODEL):
+		return null
+	var scene: PackedScene = _model_cache.get(BARROW_MODEL)
+	if scene == null:
+		scene = load(BARROW_MODEL) as PackedScene
+		if scene == null:
+			return null
+		_model_cache[BARROW_MODEL] = scene
+	var inst := scene.instantiate() as Node3D
+	if inst == null:
+		return null
+	inst.transform = Transform3D(Basis(Vector3.UP, BARROW_YAW).scaled(Vector3.ONE * BARROW_SCALE), Vector3.ZERO)
+	var root := Node3D.new()
+	root.add_child(inst)
+	return root
+
+
+# the handle ends: whatever sticks out furthest back, on each side
+static func barrow_grips() -> Array:
+	if not _grips.is_empty():
+		return _grips
+	_grips = BARROW_GRIPS.duplicate()
+	var model := barrow_model()
+	if model == null:
+		return _grips
+	var pts := PackedVector3Array()
+	for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+		if mi.mesh == null:
+			continue
+		var xf := Transform3D.IDENTITY
+		var n: Node = mi
+		while n != model:
+			xf = (n as Node3D).transform * xf
+			n = n.get_parent()
+		for i in mi.mesh.get_surface_count():
+			for v: Vector3 in mi.mesh.surface_get_arrays(i)[Mesh.ARRAY_VERTEX]:
+				pts.append(xf * v)
+	model.free()
+	var back := -INF
+	for v in pts:
+		back = maxf(back, v.z)
+	for side in 2:
+		var sum := Vector3.ZERO
+		var n := 0
+		for v in pts:
+			if (v.x > 0.0) == (side == 1) and v.z > back - 0.12:
+				sum += v
+				n += 1
+		if n > 0:
+			_grips[side] = sum / n
+	return _grips
 
 
 func _aabb(n: Node, xf: Transform3D) -> AABB:

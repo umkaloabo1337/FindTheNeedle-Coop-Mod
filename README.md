@@ -196,6 +196,11 @@ writes `tool_poses.cfg` into the mod folder. The keys are
 listed at the top of the file. `dev/tool_poser.bat` starts the game with it and
 puts `override.cfg` back when you close the game.
 
+Entry 7 is the wheelbarrow. The gizmo moves and turns it from the farmer's
+feet, and the farmer grabs both handles as you go. The grips are found on the
+model; if they're off, click a white dot (or press G) and drag it. It saves to
+`[wheelbarrow]` in the same file, and without one the mod uses its own default.
+
 ## Credits
 
 Mod by AleDev11. Find The Needle by

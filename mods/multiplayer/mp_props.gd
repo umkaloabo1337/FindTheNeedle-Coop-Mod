@@ -23,6 +23,8 @@ const SMOOTH := 16.0
 const TOOL_ITEMS := {"spade": 1, "pitchfork": 2, "broom": 3, "sand_shovel": 4,
 	"metal_detector": 5, "yard_vac": 6}
 const HELD_TICK := 0.2
+# pushed with both hands, the owner's farmer draws them, see _hand_barrows
+const PUSHED_ITEMS := {"wheelbarrow": true}
 
 var mp: Node
 var world: Node
@@ -42,6 +44,8 @@ var _state_t := 0.0
 var _census_t := 0.0
 var _held_t := 0.0
 var _hidden := {}   # mp id -> true while we hide a copy someone is carrying
+var _held := {}     # mp id -> true while its owner says they're carrying it
+var _pushed := {}   # mp id -> avatar placing that copy in its hands
 var _log := OS.get_environment("MP_DEBUG_PROPS") != ""  # dev tracing
 
 
@@ -82,6 +86,11 @@ func shutdown() -> void:
 			_release(it)
 			if _hidden.has(id):
 				it.visible = true
+	for id in _pushed:
+		if is_instance_valid(_pushed[id]):
+			_pushed[id].push_item(null)
+	_pushed.clear()
+	_held.clear()
 	_hidden.clear()
 	_by_id.clear()
 	_owner.clear()
@@ -128,6 +137,7 @@ func _adopt(item: Node, id: int, owner: int) -> void:
 
 func _forget(id: int) -> void:
 	_hidden.erase(id)
+	_held.erase(id)
 	_by_id.erase(id)
 	_owner.erase(id)
 	_sent.erase(id)
@@ -205,6 +215,8 @@ func _on_removed(item: Node) -> void:
 
 # Taking an item somebody else owns makes it ours, so we are the one moving it.
 func _on_carry_changed(item: Variant) -> void:
+	# picked up or let go: tell the others now, not in a second
+	_state_t = STATE_TICK
 	if item == null or not is_instance_valid(item) or not item.has_meta("mp_id"):
 		return
 	var id := int(item.get_meta("mp_id"))
@@ -212,6 +224,8 @@ func _on_carry_changed(item: Variant) -> void:
 		return
 	_owner[id] = _me()
 	_goal.erase(id)
+	_held.erase(id)
+	_hash.erase(id)
 	_release(item)
 	mp._rx_prop_claim.rpc(id)
 
@@ -220,6 +234,9 @@ func _state_of(item: Node) -> Dictionary:
 	var st: Dictionary = item.to_state()
 	if item.holds_needle():
 		st["needle"] = item.needle_index
+	# the game's from_state only reads its own keys, so older versions skip this
+	if item.is_held():
+		st["held"] = true
 	return st
 
 
@@ -231,6 +248,7 @@ func _process(delta: float) -> void:
 	if _held_t >= HELD_TICK:
 		_held_t = 0.0
 		_hide_held_tools()
+		_hand_barrows()
 	if mp == null or not mp.active() or multiplayer.multiplayer_peer == null:
 		return
 	if multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
@@ -278,6 +296,49 @@ func _hide_held_tools() -> void:
 			it.visible = true
 
 
+# A wheelbarrow somebody is pushing is drawn by their farmer, between its
+# hands, instead of where their first-person view has it. When they let go it
+# eases back to where the owner says it is.
+func _hand_barrows() -> void:
+	var ws: Variant = mp.world_sync if mp != null else null
+	var avatars: Dictionary = ws.avatars if ws != null and is_instance_valid(ws) else {}
+	var want := {}  # mp id -> avatar
+	for pid in avatars:
+		var av: Variant = avatars[pid]
+		if av == null or not is_instance_valid(av) or not av.has_method("push_item"):
+			continue
+		for it in held_by(int(pid)):
+			if PUSHED_ITEMS.has(String(it.item_id)):
+				want[int(it.get_meta("mp_id"))] = av
+	for id in _pushed.keys():
+		var av: Variant = _pushed[id]
+		if is_instance_valid(av) and want.get(id) == av:
+			continue
+		_pushed.erase(id)
+		# unless it's taking another one below
+		if is_instance_valid(av) and not want.values().has(av):
+			av.push_item(null)
+	for id in want:
+		if _pushed.has(id):
+			continue
+		var it: Node = _by_id[id]
+		# keep where it really is, for when they let go
+		if not _goal.has(id):
+			_goal[id] = it.global_transform
+		_pushed[id] = want[id]
+		want[id].push_item(it)
+
+
+# Items a peer owns and says they're carrying (see _state_of).
+func held_by(pid: int) -> Array:
+	var out: Array = []
+	for id in _held:
+		var it: Variant = _by_id.get(id)
+		if int(_owner.get(id, 0)) == pid and it != null and is_instance_valid(it):
+			out.append(it)
+	return out
+
+
 # Remote copies ease towards the last position we heard about instead of
 # jumping ten times a second.
 func _smooth(delta: float) -> void:
@@ -289,6 +350,9 @@ func _smooth(delta: float) -> void:
 		var it: Variant = _by_id.get(id)
 		if it == null or not is_instance_valid(it):
 			done.append(id)
+			continue
+		if _pushed.has(id):
+			# a farmer is holding it, the goal waits for them to let go
 			continue
 		var want: Transform3D = _goal[id]
 		var step: Transform3D = it.global_transform.interpolate_with(want, f)
@@ -375,6 +439,7 @@ func on_add(sender: int, id: int, item_id: String, xf: Transform3D, state: Dicti
 	_busy = false
 	if it != null:
 		_adopt(it, id, sender)
+		_note_held(id, state)
 
 
 func on_del(ids: PackedInt64Array) -> void:
@@ -418,11 +483,21 @@ func on_state(sender: int, ids: PackedInt64Array, states: Array) -> void:
 		var st: Dictionary = states[i]
 		it.from_state(st)
 		it.needle_index = int(st.get("needle", -1))
+		_note_held(id, st)
+
+
+# older versions never send "held", so their items just look loose
+func _note_held(id: int, st: Dictionary) -> void:
+	if st.get("held", false):
+		_held[id] = true
+	else:
+		_held.erase(id)
 
 
 func on_claim(sender: int, id: int) -> void:
 	var it: Variant = _by_id.get(id)
 	_owner[id] = sender
+	_held.erase(id)
 	_sent.erase(id)
 	_goal.erase(id)
 	if it == null or not is_instance_valid(it):
@@ -485,10 +560,14 @@ func send_all(pid: int) -> void:
 			continue
 		ids.append(id)
 		owners.append(int(_owner.get(id, 1)))
+		var st := _state_of(it)
+		# someone else carrying it right now
+		if _held.has(id):
+			st["held"] = true
 		entries.append({
 			"id": String(it.item_id),
 			"xform": it.global_transform,
-			"state": _state_of(it),
+			"state": st,
 		})
 		if entries.size() >= RESET_BATCH:
 			mp._rx_prop_reset.rpc_id(pid, first, ids, owners, entries)
@@ -511,6 +590,7 @@ func on_reset(first: bool, ids: PackedInt64Array, owners: PackedInt32Array, entr
 		_hash.clear()
 		_goal.clear()
 		_want.clear()
+		_held.clear()
 	for i in ids.size():
 		var e: Dictionary = entries[i]
 		var item_id: String = e.get("id", "")
@@ -521,6 +601,7 @@ func on_reset(first: bool, ids: PackedInt64Array, owners: PackedInt32Array, entr
 		_busy = false
 		if it != null:
 			_adopt(it, ids[i], owners[i])
+			_note_held(ids[i], e.get("state", {}))
 
 
 func on_reset_end() -> void:
@@ -533,6 +614,7 @@ func peer_gone(pid: int) -> void:
 		if int(_owner[id]) != pid:
 			continue
 		_owner[id] = 1
+		_held.erase(id)
 		var it: Variant = _by_id.get(id)
 		if it == null or not is_instance_valid(it):
 			continue
