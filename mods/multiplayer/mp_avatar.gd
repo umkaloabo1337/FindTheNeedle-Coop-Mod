@@ -748,7 +748,13 @@ func _place_barrow() -> void:
 		var axle := xf * (BARROW_AXLE * _barrow_size())
 		var tip := Basis(Vector3.RIGHT, -deg_to_rad(p.rot.x) * c)
 		xf = Transform3D(tip, axle - tip * axle) * xf
-	_barrow.global_transform = global_transform * xf
+	var world_xf := global_transform * xf
+	_barrow.global_transform = world_xf
+	# its shape has to travel with it: moving a frozen body by its transform
+	# alone leaves an invisible barrow standing wherever it was, and that one
+	# eats the aim of anybody trying to pick something up
+	PhysicsServer3D.body_set_state(_barrow.get_rid(),
+		PhysicsServer3D.BODY_STATE_TRANSFORM, world_xf)
 
 
 # [wheelbarrow] in tool_poses.cfg:
@@ -949,12 +955,6 @@ func _show_clump(straws: int) -> void:
 			return
 		_clump = made as Node3D
 		_clump.name = "HandfulOfHay"
-		# a decoration, not a thing in the world
-		_clump.set("freeze", true)
-		_clump.set("collision_layer", 0)
-		_clump.set("collision_mask", 0)
-		_clump.set_physics_process(false)
-		_clump.set_process(false)
 		var yard := get_parent()
 		if yard != null and "live" in _clump:
 			_clump.set("live", yard.get("live"))
@@ -962,6 +962,14 @@ func _show_clump(straws: int) -> void:
 			_hand.add_child(_clump)
 		else:
 			add_child(_clump)
+		# after add_child, never before: the item puts itself on the prop layer
+		# in its own _ready, and a solid wad hanging off a hand would eat other
+		# players' aim and could even be picked up
+		_clump.set("freeze", true)
+		_clump.set("collision_layer", 0)
+		_clump.set("collision_mask", 0)
+		_clump.set_physics_process(false)
+		_clump.set_process(false)
 		_clump.position = Vector3(0.0, -0.05, -0.15)
 	# a hand holds about the same however full it is: size it once, and never
 	# feed it strands, or it grows with every pose packet that arrives

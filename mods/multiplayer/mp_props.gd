@@ -43,7 +43,7 @@ var _move_t := 0.0
 var _state_t := 0.0
 var _census_t := 0.0
 var _held_t := 0.0
-var _hidden := {}   # mp id -> true while we hide a copy someone is carrying
+var _hidden := {}   # mp id -> the layer a hidden copy had, while it is hidden
 var _held := {}     # mp id -> true while its owner says they're carrying it
 var _pushed := {}   # mp id -> avatar placing that copy in its hands
 var _log := OS.get_environment("MP_DEBUG_PROPS") != ""  # dev tracing
@@ -85,6 +85,7 @@ func shutdown() -> void:
 		if it != null and is_instance_valid(it):
 			_release(it)
 			if _hidden.has(id):
+				it.collision_layer = int(_hidden[id])
 				it.visible = true
 	for id in _pushed:
 		if is_instance_valid(_pushed[id]):
@@ -172,8 +173,12 @@ func _release(item: Node) -> void:
 	and int(item.get_meta(PropManager.META_CLAIM)) == get_instance_id():
 		item.remove_meta(PropManager.META_CLAIM)
 	item.set_physics_process(true)
-	item.freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
-	if not item.is_held():
+	# an item in a hand is carried as a kinematic body: forcing it static here
+	# undid what the game had just set and left it sweeping through things
+	if item.is_held():
+		item.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	else:
+		item.freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
 		item.freeze = false
 
 
@@ -289,9 +294,14 @@ func _hide_held_tools() -> void:
 				var off: Vector3 = it.global_position - av.global_position
 				hide = off.y > 0.5 and Vector2(off.x, off.z).length() < 2.0
 		if hide and not _hidden.has(id):
-			_hidden[id] = true
+			# out of sight and out of everyone's aim: an invisible tool that is
+			# still solid catches the ray meant for whatever is behind it, and
+			# then nobody can pick anything up
+			_hidden[id] = it.collision_layer
+			it.collision_layer = 0
 			it.visible = false
 		elif not hide and _hidden.has(id):
+			it.collision_layer = int(_hidden[id])
 			_hidden.erase(id)
 			it.visible = true
 

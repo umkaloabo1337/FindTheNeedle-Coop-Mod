@@ -524,7 +524,12 @@ func _freeze_client_machines() -> void:
 			n.set_meta("mp_stopped", true)
 			n.set_process(false)
 			n.set_physics_process(false)
-			n.process_mode = Node.PROCESS_MODE_DISABLED
+			# Not process_mode: a disabled node takes its collision body out of
+			# the world (CollisionObject3D.disable_mode) and its particles stop
+			# emitting, so the machine turned into a hole you walk through with
+			# no smoke and no fire.
+			if n.process_mode == Node.PROCESS_MODE_DISABLED:
+				n.process_mode = Node.PROCESS_MODE_INHERIT
 			_still_animations(n)
 
 

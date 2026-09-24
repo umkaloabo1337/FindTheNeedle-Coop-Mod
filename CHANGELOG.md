@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.14.0
+
+* Half of every machine's parts never arrived. The number that names a part
+  is a 32-bit hash travelling in a signed 32-bit array, so any hash past the
+  sign bit turned into a different number on the way and matched nothing.
+  Those parts kept whatever pose they happened to be in, mixed in with the
+  ones that did arrive, which is what made machines look bent. Ids are kept
+  inside 31 bits now and the whole machine comes across.
+* Machines are solid again on clients. They were being stopped with
+  `process_mode`, and a disabled node takes its collision body out of the
+  world and stops its particles, so a machine was a hole you could walk
+  through with no smoke and no fire. They are stopped by their processing
+  alone now, which is what takes them out of the factory's clock anyway.
+* Fire, lamps and the generator's smoke reach everyone: the walk that gathers
+  a machine's moving parts starts at the machine itself, since the fire and
+  the smoke column are built in code and hang off it rather than off its
+  model.
+* You can pick things up again. A player holding straw carried an invisible
+  solid wad welded to their hand, because the item put itself back on the
+  prop layer after we had cleared it; your aim hit that instead of whatever
+  you were pointing at, and once it was in your hands nothing else could be.
+* The same thing, twice over: a pushed wheelbarrow left an invisible copy of
+  itself standing wherever it had been, and a hidden tool in somebody's hand
+  stayed solid. Both are out of the way now.
+* An item in a hand keeps the kinematic body the game gives it instead of
+  being forced static.
+
 ## v0.13.0
 
 * A guest who accepts an invite is told what is going on. A card lists the

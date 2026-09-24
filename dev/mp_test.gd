@@ -112,6 +112,15 @@ func _process(delta: float) -> void:
 		if wt > 22.0 and not _did.has("straws") and role == "host":
 			_did["straws"] = true
 			_act_straws()
+		if wt > 24.0 and not _did.has("gen") and role == "host":
+			_did["gen"] = true
+			_act_generator()
+		if wt > 40.0 and not _did.has("dump"):
+			_did["dump"] = true
+			_dump_parts()
+		if wt > 37.0 and not _did.has("mine"):
+			_did["mine"] = true
+			_grab_mine()
 		if wt > 26.0 and not _did.has("machine") and role == "host":
 			_did["machine"] = true
 			_act_machine()
@@ -329,7 +338,7 @@ func _report() -> void:
 		if is_instance_valid(b):
 			nn += 1
 	print("[MPTEST] needles=%d money=%.2f hay_total=%.1f hay_dug=%.1f heights_sum=%.3f builds=%d avatars=%d tech=%d players=%d %s" % [
-		nn, GameState.money, GameState.hay_total, GameState.hay_dug, sum, nb, ws.avatars.size(), Tech.ranks.size(), mp.players.size(), _props_line() + " " + _mach_line() + " " + _probe_part() + " " + _straw_line() + " " + _hand_line()])
+		nn, GameState.money, GameState.hay_total, GameState.hay_dug, sum, nb, ws.avatars.size(), Tech.ranks.size(), mp.players.size(), _props_line() + " " + _mach_line() + " " + _probe_part() + " " + _straw_line() + " " + _hand_line() + " " + _gen_line()])
 
 
 # both players meet at the (open) new-game spawn; the client looks at the host
@@ -668,3 +677,93 @@ func _grab_straw() -> void:
 	print("[MPTEST] %s grabbing straw %d: ray hit %s, hand %d -> %d, still a copy=%s" % [
 		role, sid, "something" if not hit.is_empty() else "nothing",
 		before, int(hand.count()), ss._ghost.has(sid)])
+
+
+# --- regression check: machine collision, its fire, and picking items up ---
+
+func _act_generator() -> void:
+	var ws: Node = mp.world_sync
+	var at: Vector3 = ws.world._seat(Vector3(10.0, 0.0, 16.0))
+	var gen: Variant = ws.builds.add_generator(at, 0.0)
+	print("[MPTEST] host put a generator at %v -> %s" % [at, gen != null])
+	if gen == null:
+		return
+	# stoke it so it actually burns: that is what makes the fire, the light
+	# and the smoke the others should see
+	await get_tree().create_timer(2.0).timeout
+	if "switched_off" in gen:
+		gen.set("switched_off", false)
+	gen.set("fuel", 400.0)
+	print("[MPTEST] host stoked the generator: fuel=%.0f" % float(gen.get("fuel")))
+
+
+func _gen_line() -> String:
+	var ws: Node = mp.world_sync
+	var arr: Variant = ws.builds.get("generators")
+	if not (arr is Array) or (arr as Array).is_empty():
+		return "gen=none"
+	var gen: Node3D = (arr as Array)[0]
+	var at: Vector3 = gen.global_position
+	# can anything still stand on it?
+	var q := PhysicsRayQueryParameters3D.create(at + Vector3(0.0, 4.0, 0.0), at + Vector3(0.0, 0.2, 0.0))
+	q.collision_mask = 0xFFFFFF
+	q.collide_with_areas = false
+	var hit: Dictionary = ws.player.get_world_3d().direct_space_state.intersect_ray(q)
+	var solid := "-"
+	if not hit.is_empty():
+		var who: Object = hit.get("collider")
+		solid = "yes" if who != null and (who as Node).is_ancestor_of(gen) == false and gen.is_ancestor_of(who as Node) else String((who as Node).name)
+	var fire := 0
+	var lights := 0.0
+	for n in gen.find_children("*", "GPUParticles3D", true, false):
+		if (n as GPUParticles3D).emitting:
+			fire += 1
+	for n in gen.find_children("*", "Light3D", true, false):
+		lights += (n as Light3D).light_energy
+	var where := "-"
+	var puffs: Array = gen.find_children("*", "GPUParticles3D", true, false)
+	if puffs.size() > 0:
+		where = String(gen.get_path_to(puffs[0]))
+	return "gen=%s solid=%s fire=%d/%d light=%.2f fuel=%.1f path=%s" % [
+		gen.name, solid, fire, puffs.size(), lights, float(gen.get("fuel")), where]
+
+
+# can I pick up an item of my own that I just dropped?
+func _grab_mine() -> void:
+	var ws: Node = mp.world_sync
+	var props: Node = ws.world.get("props")
+	var p: Node3D = ws.player
+	var it: Variant = props.spawn_at_feet("hay_bale", p)
+	if it == null:
+		print("[MPTEST] %s could not drop a bale" % role)
+		return
+	await get_tree().create_timer(1.0).timeout
+	var at: Vector3 = (it as Node3D).global_position
+	var d: Vector3 = at - p.eye_position()
+	p.set_look(atan2(-d.x, -d.z), atan2(d.y, Vector2(d.x, d.z).length()))
+	await get_tree().create_timer(0.5).timeout
+	var seen: Variant = p.carry._probe()
+	var got: bool = p.carry.try_pick()
+	print("[MPTEST] %s picking up its own bale: ray hit %s, picked=%s" % [
+		role, seen.item_id if seen != null else "nothing", got])
+	if got:
+		p.carry.stow()
+
+
+# print every part the machine sync walks, so host and client can be compared
+func _dump_parts() -> void:
+	var ws: Node = mp.world_sync
+	var ms: Variant = ws.machines_sync
+	if ms == null:
+		return
+	for key in ms._nodes:
+		if not String(key).begins_with("generators"):
+			continue
+		var parts: Array = ms._parts_of(key)
+		var names := PackedStringArray()
+		for p in parts:
+			if p != null and is_instance_valid(p):
+				names.append(ms._part_path(ms._nodes[key], p))
+		names.sort()
+		print("[MPPARTS] %s %d: %s" % [role, names.size(), ",".join(names)])
+		return

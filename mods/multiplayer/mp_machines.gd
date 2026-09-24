@@ -21,7 +21,9 @@ const FULL_TICK := 2.0    # how often every part goes out again, packets get los
 const RANGE := 32.0        # metres from a player before a machine is worth sending
 const MOVE_EPS := 0.0015
 const ANG_EPS := 0.004
-const MAX_PARTS := 48
+# a machine model carries a lot of nodes and the smoke and firebox sit well
+# down the list, so do not cut the walk short
+const MAX_PARTS := 120
 const SMOOTH := 22.0
 const MAX_RAW := 4 << 20
 
@@ -63,6 +65,7 @@ var _slot := {}     # key -> {part id: index into _parts}
 var _sent := {}     # key -> {part id: last transform broadcast}
 var _full := false  # this tick, send every part again
 var _refresh_t := 0.0
+var _log := OS.get_environment("MP_DEBUG_PROPS") != ""
 var _fx := {}       # key -> per part: its light and its shader values
 var _fx_sent := {}  # key -> {"part:slot": last value sent}
 var _flags := {}    # key -> PackedByteArray last broadcast
@@ -151,15 +154,20 @@ func _parts_of(key: String) -> Array:
 	var slot := {}
 	var n: Variant = _nodes.get(key)
 	if n != null and is_instance_valid(n):
-		var root: Variant = n.get("_model")
-		var base: Node = root if root is Node3D and is_instance_valid(root) else n
+		# from the machine itself, not from its model: the fire, the lamps and
+		# the smoke column are made in code and hang off the machine, so a walk
+		# that started at the model never saw them
+		var base: Node = n as Node
 		_walk(base, out)
 		# A part is named by where it hangs, not by its place in the list: the
 		# game adds and removes nodes of its own (alert markers, dust, range
 		# rings), and a machine with one more of those would otherwise hand
 		# every pose to the wrong part and come out crooked.
 		for i in out.size():
-			var id := String((base as Node).get_path_to(out[i])).hash()
+			# 31 bits: these ids travel in a signed 32-bit array, and a hash that
+			# spills over the sign bit would arrive as a different number and
+			# match nothing. It cost half the parts of every machine.
+			var id := int(_part_path(base, out[i]).hash()) & 0x7fffffff
 			ids.append(id)
 			slot[id] = i
 	_parts[key] = out
@@ -303,6 +311,13 @@ func _send_poses() -> void:
 			batch[key] = entry
 	if batch.is_empty():
 		return
+	if _log and _full:
+		for key in batch:
+			var e: Dictionary = batch[key]
+			print("[MPMACH] send %s moved=%d flags=%d fx=%d" % [key,
+				(e.get("i", PackedInt32Array()) as PackedInt32Array).size(),
+				(e.get("f", PackedInt32Array()) as PackedInt32Array).size() / 2,
+				(e.get("xv", PackedFloat32Array()) as PackedFloat32Array).size()])
 	var raw := var_to_bytes(batch)
 	mp._rx_machines.rpc(raw.compress(FileAccess.COMPRESSION_ZSTD), raw.size())
 
@@ -364,22 +379,34 @@ func on_poses(packed: PackedByteArray, raw_size: int) -> void:
 		if not _nodes.has(key):
 			_rescan()
 			if not _nodes.has(key):
+				if _log:
+					print("[MPMACH] got %s but no machine of mine matches" % key)
 				continue
 		var parts := _parts_of(key)
 		if parts.is_empty():
+			if _log:
+				print("[MPMACH] got %s but walked no parts" % key)
 			continue
 		var slot := _slot_of(key)
 		var entry: Dictionary = batch[key]
 		if entry.has("f"):
 			var flags: PackedInt32Array = entry["f"]
 			var k := 0
+			var hit := 0
+			var lost := 0
 			while k + 1 < flags.size():
 				var at: int = int(slot.get(flags[k], -1))
 				if at >= 0 and at < parts.size():
 					var part: Variant = parts[at]
 					if part != null and is_instance_valid(part):
 						_set_flags(part as Node3D, flags[k + 1])
+						hit += 1
+				else:
+					lost += 1
 				k += 2
+			if _log and lost > 0:
+				print("[MPMACH] %s flags: %d placed, %d with no part here (I walked %d)" % [
+					key, hit, lost, parts.size()])
 		if entry.has("xi") and entry.has("xv"):
 			on_fx(key, entry["xi"], entry["xv"])
 		if not entry.has("t") or not entry.has("i"):
@@ -596,3 +623,33 @@ func on_fx(key: String, ids: PackedInt32Array, vals: PackedFloat32Array) -> void
 		var names: PackedStringArray = d["names"]
 		if which < names.size():
 			(d["mat"] as ShaderMaterial).set_shader_parameter(names[which], v)
+
+
+# Where a part hangs, as a name both sides work out the same way. Nodes the
+# game builds in code get a generated name (@GPUParticles3D@27) that counts up
+# differently on each machine, so those are placed by what they are and where
+# they sit among their siblings instead.
+func _part_path(base: Node, n: Node) -> String:
+	var bits := PackedStringArray()
+	var cur: Node = n
+	while cur != null and cur != base:
+		bits.append(_part_name(cur))
+		cur = cur.get_parent()
+	bits.reverse()
+	return "/".join(bits)
+
+
+func _part_name(n: Node) -> String:
+	var nm := String(n.name)
+	if not nm.begins_with("@"):
+		return nm
+	var parent := n.get_parent()
+	if parent == null:
+		return n.get_class()
+	var seen := 0
+	for child in parent.get_children():
+		if child == n:
+			break
+		if child.get_class() == n.get_class():
+			seen += 1
+	return "%s#%d" % [n.get_class(), seen]
