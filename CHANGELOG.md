@@ -2,6 +2,10 @@
 
 ## v0.6.0
 
+* An optional install helper lives in `tools/` and is attached to the release,
+  for anyone who would rather not edit `override.cfg` by hand. It is kept out
+  of the download so the archive carries no scripts.
+
 * No scripts in the download. The autoload line now uses a path relative to
   the game folder, so it is the same on every machine: copy the mods folder
   and add two lines to override.cfg by hand. The .bat installers are gone.

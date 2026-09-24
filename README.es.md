@@ -38,8 +38,12 @@ un archivo de texto.
    Si el archivo ya tiene una sección `[autoload]`, basta con la segunda línea.
 4. Abre el juego desde Steam. En el menú principal hay una entrada MULTIPLAYER.
 
-Para desinstalar, borra esa línea y la carpeta `mods`. No se escribe nada más
-fuera de ella.
+Si prefieres no tocar el archivo, `tools/install-helper.bat` (va suelto en
+cada release) hace ese paso por ti. No viene dentro de la descarga porque
+Nexus pone en cuarentena lo que lleva scripts.
+
+Para desinstalar, borra esa línea y la carpeta `mods`, o ejecuta
+`tools/uninstall-helper.bat`. No se escribe nada más fuera de ella.
 
 Las actualizaciones del juego reemplazan `override.cfg`, así que hay que
 añadir las líneas otra vez después de cada una.

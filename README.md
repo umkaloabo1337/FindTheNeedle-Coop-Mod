@@ -37,8 +37,12 @@ No installer to run: copy a folder, add two lines to a text file.
    needed.
 4. Launch from Steam. There is a MULTIPLAYER entry in the main menu.
 
-To uninstall, delete that line and the `mods` folder. Nothing is ever written
-outside it.
+If you would rather not edit the file, `tools/install-helper.bat` (also
+attached to each release) does that one step for you. It is not inside the
+download because Nexus quarantines uploads that contain scripts.
+
+To uninstall, delete that line and the `mods` folder, or run
+`tools/uninstall-helper.bat`. Nothing is ever written outside it.
 
 Game updates replace `override.cfg`, so add the lines again after each one.
 
