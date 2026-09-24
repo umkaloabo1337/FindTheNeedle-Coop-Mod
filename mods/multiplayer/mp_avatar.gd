@@ -3,7 +3,9 @@
 # Poses arrive ~20 times a second and are smoothed.
 extends Node3D
 
-const TOOL_NAMES := ["mano", "pala", "horca", "escoba", "palita", "detector", "aspiradora", "mechero", "construir"]
+# the game's own msgids, so the label reads like the rest of its UI
+const TOOL_NAMES := ["Hand", "Spade", "Pitchfork", "Broom", "Toy Shovel",
+	"Metal Detector", "Yard Vac", "Lighter", "BUILD"]
 const TOOL_MODELS := {
 	1: "res://assets/downloaded/models/rusted_spade_01/rusted_spade_01_1k.gltf",
 	2: "res://assets/models/pitchfork.glb",
@@ -415,7 +417,7 @@ func _process(delta: float) -> void:
 		_body.scale.y = 1.0 - 0.3 * _crouch_now
 		_animate_figure(delta, k)
 	var tool_txt: String = TOOL_NAMES[_tool] if _tool >= 0 and _tool < TOOL_NAMES.size() else ""
-	_label.text = _name if tool_txt == "" or _tool == 0 else "%s\n[%s]" % [_name, tool_txt]
+	_label.text = _name if tool_txt == "" or _tool == 0 else "%s\n[%s]" % [_name, tr(tool_txt)]
 
 
 func _set_tool_model(tool: int) -> void:

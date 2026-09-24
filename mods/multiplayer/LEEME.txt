@@ -1,4 +1,4 @@
-FIND THE NEEDLE - MOD MULTIJUGADOR (cooperativo)  v0.4.0
+FIND THE NEEDLE - MOD MULTIJUGADOR (cooperativo)  v0.5.0
 =========================================================
 
 Mod NO oficial y de uso privado. Todos los jugadores necesitan el juego
@@ -40,6 +40,12 @@ TECLAS
   F2  panel multijugador (tambien dentro de la partida)
   Y   chat
   F8  resincronizar el mundo si algo se ve distinto
+
+IDIOMAS
+-------
+  El mod sigue el idioma que tengas puesto en el juego. Estan incluidos
+  ingles, espanol, aleman, frances, italiano, checo, polaco, ruso, turco,
+  japones, coreano y chino.
 
 QUE SE COMPARTE
 ---------------

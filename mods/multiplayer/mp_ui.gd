@@ -25,6 +25,10 @@ var _steam_label: Label
 var _ip_toggle: Button
 var _ips_btn: Button
 var _steps_label: RichTextLabel
+var _help_label: Label
+var _close_btn: Button
+var _title_label: Label
+var _subtitle_label: Label
 var _show_ips := false  # never show addresses unless asked (streamer safety)
 var _ip_box: VBoxContainer
 var _join_btn: Button
@@ -162,8 +166,10 @@ func _build_panel() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
 	_panel.add_child(v)
-	v.add_child(_label("MULTIJUGADOR", 34, COL_TITLE))
-	v.add_child(_label("Mod cooperativo v%s   ·   F2 panel   ·   Y chat   ·   F8 resincronizar" % mp.VERSION, 14, COL_DIM))
+	_title_label = _label(mp.t("title"), 34, COL_TITLE)
+	v.add_child(_title_label)
+	_subtitle_label = _label(mp.t("subtitle") % mp.VERSION, 14, COL_DIM)
+	v.add_child(_subtitle_label)
 
 	# step-by-step guide; the current step is highlighted in refresh()
 	_steps_label = RichTextLabel.new()
@@ -174,22 +180,22 @@ func _build_panel() -> void:
 	_steps_label.add_theme_font_size_override("normal_font_size", 17)
 	v.add_child(_steps_label)
 
-	_name_edit = _edit(mp.my_name, "Tu nombre")
+	_name_edit = _edit(mp.my_name, mp.t("name_hint"))
 	_name_edit.max_length = 24
 	_name_edit.text_changed.connect(func(t: String) -> void: mp.set_player_name(t))
-	_field(v, "TU NOMBRE", _name_edit)
+	_field(v, mp.t("your_name"), _name_edit)
 
 	# --- Steam: the easy way, no ports and no IPs
 	_steam_label = _label("", 15, COL_DIM, true)
 	v.add_child(_steam_label)
 	var srow := HBoxContainer.new()
 	srow.add_theme_constant_override("separation", 10)
-	_steam_host_btn = _button("CREAR PARTIDA", func() -> void: mp.host_steam(), true)
-	_invite_btn = _button("INVITAR AMIGOS", func() -> void: mp.invite_friends(), true)
+	_steam_host_btn = _button(mp.t("create_game"), func() -> void: mp.host_steam(), true)
+	_invite_btn = _button(mp.t("invite_friends"), func() -> void: mp.invite_friends(), true)
 	srow.add_child(_steam_host_btn)
 	srow.add_child(_invite_btn)
 	v.add_child(srow)
-	_ip_toggle = _button("CONEXIÓN POR IP (AVANZADO)", func() -> void:
+	_ip_toggle = _button(mp.t("ip_section"), func() -> void:
 		_ip_box.visible = not _ip_box.visible)
 	v.add_child(_ip_toggle)
 	_ip_box = VBoxContainer.new()
@@ -199,8 +205,8 @@ func _build_panel() -> void:
 
 	var row2 := HBoxContainer.new()
 	row2.add_theme_constant_override("separation", 10)
-	_ip_edit = _edit(mp.last_ip, "ej. 100.101.102.103")
-	_field(row2, "IP DEL ANFITRIÓN (solo para unirse)", _ip_edit)
+	_ip_edit = _edit(mp.last_ip, mp.t("ip_hint"))
+	_field(row2, mp.t("host_ip"), _ip_edit)
 	_port_edit = SpinBox.new()
 	_port_edit.min_value = 1024
 	_port_edit.max_value = 65535
@@ -208,29 +214,29 @@ func _build_panel() -> void:
 	_port_edit.custom_minimum_size = Vector2(140, 40)
 	var port_box := VBoxContainer.new()
 	port_box.add_theme_constant_override("separation", 4)
-	port_box.add_child(_label("PUERTO", 14, COL_DIM))
+	port_box.add_child(_label(mp.t("port"), 14, COL_DIM))
 	port_box.add_child(_port_edit)
 	row2.add_child(port_box)
 	_ip_box.add_child(row2)
 
 	var row3 := HBoxContainer.new()
 	row3.add_theme_constant_override("separation", 10)
-	_host_btn = _button("CREAR SERVIDOR", _on_host, true)
-	_join_btn = _button("UNIRSE", _on_join, true)
+	_host_btn = _button(mp.t("create_server"), _on_host, true)
+	_join_btn = _button(mp.t("join"), _on_join, true)
 	row3.add_child(_host_btn)
 	row3.add_child(_join_btn)
 	_ip_box.add_child(row3)
 
 	# Addresses stay hidden: this panel is often on screen while streaming.
-	_ips_btn = _button("MOSTRAR MIS IPS (cuidado si estás en directo)", func() -> void:
+	_ips_btn = _button(mp.t("show_ips"), func() -> void:
 		_show_ips = not _show_ips
 		refresh())
 	_ip_box.add_child(_ips_btn)
 
 	var row4 := HBoxContainer.new()
 	row4.add_theme_constant_override("separation", 10)
-	_leave_btn = _button("DESCONECTAR", func() -> void: mp.leave("Sesión cerrada."))
-	_resync_btn = _button("RESINCRONIZAR", func() -> void: mp.request_resync())
+	_leave_btn = _button(mp.t("disconnect"), func() -> void: mp.leave(mp.t("session_closed")))
+	_resync_btn = _button(mp.t("resync"), func() -> void: mp.request_resync())
 	row4.add_child(_leave_btn)
 	row4.add_child(_resync_btn)
 	v.add_child(row4)
@@ -254,7 +260,10 @@ func _build_panel() -> void:
 
 	_ips_label = _label("", 14, COL_DIM, true)
 	_ip_box.add_child(_ips_label)
-	v.add_child(_button("CERRAR", close_panel))
+	_help_label = _label(mp.t("panel_help"), 14, COL_DIM, true)
+	v.add_child(_help_label)
+	_close_btn = _button(mp.t("close"), close_panel)
+	v.add_child(_close_btn)
 
 
 func _build_feed() -> void:
@@ -297,7 +306,7 @@ func _build_roster() -> void:
 
 func _build_chat() -> void:
 	_chat_edit = LineEdit.new()
-	_chat_edit.placeholder_text = "Escribe y pulsa Enter (Esc para cancelar)"
+	_chat_edit.placeholder_text = mp.t("chat_hint")
 	_chat_edit.anchor_left = 0.5
 	_chat_edit.anchor_right = 0.5
 	_chat_edit.anchor_top = 1.0
@@ -409,7 +418,7 @@ func _on_join() -> void:
 	mp.set_player_name(_name_edit.text)
 	var ip := _ip_edit.text.strip_edges()
 	if ip == "":
-		notify("Escribe la IP del anfitrión.")
+		notify(mp.t("ask_ip"))
 		return
 	mp.join(ip, int(_port_edit.value))
 
@@ -465,14 +474,14 @@ func _push_feed(c: Control) -> void:
 # Three numbered steps with the current one highlighted, so nobody has to
 # guess what to press next.
 func _steps_text() -> String:
-	var steps := ["CREAR PARTIDA", "INVITAR AMIGOS", "EMPIEZA A JUGAR"]
+	var steps := [mp.t("create_game"), mp.t("invite_friends"), mp.t("step_play")]
 	var at := 0
 	if mp.active() and mp.is_host:
 		at = 1 if not mp.in_world() else 2
 		if mp.players.size() > 1:
 			at = 2
 	elif mp.active():
-		steps = ["CONECTANDO", "ENTRANDO AL PAJAR", "¡A CAVAR!"]
+		steps = [mp.t("step_connecting"), mp.t("step_entering"), mp.t("step_dig")]
 		at = 1 if mp.phase == mp.Phase.LOADING else (2 if mp.in_world() else 0)
 	var out := PackedStringArray()
 	for i in steps.size():
@@ -482,17 +491,37 @@ func _steps_text() -> String:
 	return "   ".join(out)
 
 
+# Button and label text is set when the panel is built; re-apply it so a
+# language change in the game's options shows up without a restart.
+func _apply_texts() -> void:
+	_title_label.text = mp.t("title")
+	_subtitle_label.text = mp.t("subtitle") % mp.VERSION
+	_steam_host_btn.text = mp.t("create_game")
+	_invite_btn.text = mp.t("invite_friends")
+	_ip_toggle.text = mp.t("ip_section")
+	_host_btn.text = mp.t("create_server")
+	_join_btn.text = mp.t("join")
+	_leave_btn.text = mp.t("disconnect")
+	_resync_btn.text = mp.t("resync")
+	_close_btn.text = mp.t("close")
+	_help_label.text = mp.t("panel_help")
+	_name_edit.placeholder_text = mp.t("name_hint")
+	_ip_edit.placeholder_text = mp.t("ip_hint")
+	_chat_edit.placeholder_text = mp.t("chat_hint")
+
+
 func refresh() -> void:
 	if _panel == null:
 		return
+	_apply_texts()
 	var on: bool = mp.active()
 	var steam_ok: bool = mp.steam_ready()
 	_steam_host_btn.disabled = on or not steam_ok
 	_invite_btn.disabled = not (on and mp.is_host and mp.over_steam)
 	if steam_ok:
-		_steam_label.text = "Steam listo como %s. Crea la partida e invita a tus amigos: entran sin tocar el router ni escribir IPs." % mp.steam.persona
+		_steam_label.text = mp.t("steam_ready") % mp.steam.persona
 	else:
-		_steam_label.text = "Steam no disponible (%s). Abre el juego desde Steam para poder invitar; mientras tanto puedes usar la conexión por IP." % mp.steam.load_status
+		_steam_label.text = mp.t("steam_missing") % mp.steam.load_status
 	_host_btn.disabled = on
 	_join_btn.disabled = on
 	_leave_btn.disabled = not on
@@ -501,15 +530,15 @@ func refresh() -> void:
 	_ip_edit.editable = not on
 	var lines := PackedStringArray()
 	if on:
-		lines.append("[color=#%s]%s[/color]" % [COL_TITLE.to_html(false), "Anfitrión" if mp.is_host else "Conectado como cliente"])
+		lines.append("[color=#%s]%s[/color]" % [COL_TITLE.to_html(false), mp.t("role_host") if mp.is_host else mp.t("role_client")])
 		for id in mp.players:
 			var p: Dictionary = mp.players[id]
-			var st := {"world": "en el pajar", "loading": "cargando", "lobby": "esperando", "menu": "en el menú"}.get(str(p.get("state", "")), "")
+			var st := {"world": mp.t("state_world"), "loading": mp.t("state_loading"), "lobby": mp.t("state_lobby"), "menu": mp.t("state_menu")}.get(str(p.get("state", "")), "")
 			lines.append("[color=#%s]●[/color] %s%s  [color=#8a8f99]%s[/color]" % [
 				(p["color"] as Color).to_html(false), _esc(str(p["name"])),
-				"  (anfitrión)" if id == 1 else "", st])
+				mp.t("host_suffix") if id == 1 else "", st])
 	else:
-		lines.append("[color=#8a8f99]Sin conexión[/color]")
+		lines.append("[color=#8a8f99]%s[/color]" % mp.t("offline"))
 	_players_label.text = "\n".join(lines)
 	_steps_label.text = _steps_text()
 	# addresses are private: only drawn when the player asks for them
@@ -525,11 +554,11 @@ func refresh() -> void:
 				elif a.begins_with("192.168.") or a.begins_with("10."):
 					tag = " (red local)"
 				ips.append(a + tag)
-		_ips_label.text = "Tus IPs: " + (", ".join(ips) if not ips.is_empty() else "-")
-		_ips_btn.text = "OCULTAR MIS IPS"
+		_ips_label.text = mp.t("your_ips") % (", ".join(ips) if not ips.is_empty() else "-")
+		_ips_btn.text = mp.t("hide_ips")
 	else:
-		_ips_label.text = "Tus IPs están ocultas para que no se vean en directo."
-		_ips_btn.text = "MOSTRAR MIS IPS (cuidado si estás en directo)"
+		_ips_label.text = mp.t("ips_hidden")
+		_ips_btn.text = mp.t("show_ips")
 	# roster in the corner while playing together
 	if on and mp.players.size() > 0:
 		var rl := PackedStringArray()

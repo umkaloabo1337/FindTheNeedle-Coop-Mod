@@ -751,7 +751,7 @@ func _on_pile_replaced() -> void:
 		return
 	_frozen = true
 	if mp.is_host:
-		mp.ui.notify("Nueva carga de paja: sincronizando a todos...")
+		mp.ui.notify(mp.t("new_pile_host"))
 		await get_tree().create_timer(1.5).timeout
 		if not is_inside_tree():
 			return
@@ -759,7 +759,7 @@ func _on_pile_replaced() -> void:
 		mp.resync_all()
 	else:
 		# the host owns the pile; ask it to swap its pile, it will send us the result
-		mp.ui.notify("Pidiendo la nueva carga al anfitrión...")
+		mp.ui.notify(mp.t("new_pile_client"))
 		mp._rx_new_pile_request.rpc_id(1)
 
 
@@ -876,7 +876,7 @@ func _on_needle_discovered(type: int, _pos: Vector3) -> void:
 func on_event(id: int, kind: String, _data: Dictionary) -> void:
 	match kind:
 		"needle":
-			toast("¡%s ha guardado una aguja!" % mp.player_name(id))
+			toast(mp.t("needle_found") % mp.player_name(id))
 
 
 func toast(text: String, seconds: float = 3.5) -> void:

@@ -1,4 +1,4 @@
-FIND THE NEEDLE - MULTIPLAYER (co-op) MOD  v0.4.0
+FIND THE NEEDLE - MULTIPLAYER (co-op) MOD  v0.5.0
 ==================================================
 
 Unofficial mod for private use. Every player needs the game (the free Steam
@@ -39,6 +39,12 @@ KEYS
   F2  multiplayer panel (also in game)
   Y   chat
   F8  resync the world if something looks different
+
+LANGUAGES
+---------
+  The mod follows the language you set in the game. English, Spanish,
+  German, French, Italian, Czech, Polish, Russian, Turkish, Japanese,
+  Korean and Chinese are included.
 
 WHAT IS SHARED
 --------------

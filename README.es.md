@@ -1,171 +1,166 @@
-# Find The Needle — Mod multijugador (cooperativo)
+# Mod cooperativo para Find The Needle
 
-Juega a *Find The Needle* (demo de Steam) con tus amigos. Un solo pajar, varios
-jugadores, todos cavando a la vez.
+Añade multijugador cooperativo a la demo de Find The Needle. Varios jugadores
+cavan el mismo pajar, comparten el dinero y ven las construcciones de los demás.
 
-La conexión va por la **red de Steam**, igual que en los juegos con cooperativo
-oficial: **sin abrir puertos, sin IPs y sin VPN**. Invitas desde la lista de
-amigos de Steam y tu amigo aparece en tu patio.
+La conexión va por la red de Steam, así que no hay que abrir puertos ni
+intercambiar IPs. El anfitrión invita desde la lista de amigos de Steam.
 
-> Mod no oficial. Sin relación con el desarrollador del juego ni respaldo suyo.
-> **No incluye ningún archivo del juego**: solo sus propios scripts, que el
-> juego carga al arrancar, y un modelo de jugador libre (CC0). English: [README.md](README.md)
+Mod no oficial, sin relación con el desarrollador del juego. No incluye
+archivos del juego, solo sus propios scripts y un modelo de jugador libre
+(CC0). English: [README.md](README.md).
 
-![El panel de multijugador](screenshots/panel.png)
-
----
+![Panel de multijugador](screenshots/panel.png)
 
 ## Requisitos
 
-- *Find The Needle Demo* instalada desde Steam (gratis), versión **V26** o
-  posterior.
-- Windows 64 bits.
-- Todos los jugadores necesitan **la misma versión del mod**.
-- Abrid el juego **desde Steam** (las invitaciones necesitan el overlay).
+* Demo de Find The Needle (gratis en Steam), versión V26 o posterior
+* Windows 64 bits
+* La misma versión del mod en todas las máquinas
+* Hay que abrir el juego desde Steam o las invitaciones no funcionan
 
 ## Instalación
 
-1. Descarga el último `FindTheNeedle_Multiplayer_vX.Y.Z.zip` de
-   [Releases](../../releases).
-2. Descomprime y copia la carpeta `mods` junto a `FindTheNeedle.exe`
-   (Steam → clic derecho en el juego → Administrar → Ver archivos locales).
+1. Descarga el zip de [Releases](../../releases).
+2. Copia la carpeta `mods` junto a `FindTheNeedle.exe`. En Steam: clic derecho
+   en el juego, Administrar, Ver archivos locales.
 3. Ejecuta `mods\multiplayer\INSTALAR.bat`.
-4. Abre el juego desde Steam. En el menú principal aparece **MULTIPLAYER**.
+4. Abre el juego desde Steam. En el menú principal hay una entrada MULTIPLAYER.
 
-Para quitarlo, ejecuta `mods\multiplayer\DESINSTALAR.bat`: deja el juego
-exactamente como estaba.
+`DESINSTALAR.bat` lo deshace. El instalador solo añade una línea al
+`override.cfg` del juego; no escribe nada más fuera de la carpeta `mods`.
 
-> **Después de cada actualización del juego, vuelve a ejecutar `INSTALAR.bat`.**
-> Las actualizaciones de Steam sobrescriben `override.cfg`, que es el archivo
-> donde se registra el mod.
+Las actualizaciones del juego reemplazan `override.cfg`, así que hay que
+ejecutar `INSTALAR.bat` otra vez después de cada una.
 
-## Cómo jugar
+## Jugar
 
-**Anfitrión** (aquel cuya partida se juega):
+Anfitrión: MULTIPLAYER, CREAR PARTIDA, INVITAR AMIGOS, y luego empieza o carga
+una partida como siempre. Los demás entran aceptando la invitación de Steam. Si
+tienen el juego cerrado, Steam lo abre y los mete dentro.
 
-1. `MULTIPLAYER` → **CREAR PARTIDA**
-2. **INVITAR AMIGOS** (abre el overlay de Steam) o que entren desde tu perfil
-   con *Unirse a la partida*.
-3. Empieza o carga tu partida como siempre. Tus amigos aparecerán en ella.
-
-**Amigos:** aceptad la invitación de Steam. Ya está, no hay que escribir
-ninguna dirección. Si teníais el juego cerrado, Steam lo abre y os mete dentro.
-
-Queda también un modo por IP directa en *Conexión por IP (avanzado)*, por si
-algún día falla Steam.
-
-### Teclas
+Queda un modo por IP directa en "Conexión por IP (avanzado)" como alternativa.
 
 | Tecla | Acción |
 |-------|--------|
-| `F2` | Panel de multijugador (también dentro de la partida) |
-| `Y` | Chat |
-| `F8` | Resincronizar el mundo si algo se ve distinto |
+| F2 | Panel de multijugador |
+| Y | Chat |
+| F8 | Resincronizar el mundo |
 
-## Qué se comparte
+## Qué se sincroniza
 
-- **El pajar.** Todos cavan el mismo montón y lo ven cambiar al momento.
-- **Construcciones.** Colocar y derribar edificios, cintas y plataformas.
-- **Economía.** Dinero, deuda, paja vendida, agujas encontradas y colección.
-- **Árbol de mejoras.** Una mejora comprada por uno la tienen todos.
-- **Agujas sueltas.** Las agujas destapadas las ve todo el mundo y solo se
-  pueden entregar una vez.
-- **Cargas nuevas de paja.** Pedir un montón nuevo resincroniza a todos.
-- **Jugadores.** Os veis entre vosotros con el nombre de Steam y la herramienta
-  en la mano.
+* El pajar. Todos cavan el mismo montón.
+* Las construcciones, al colocarlas y al derribarlas.
+* Dinero, deuda, paja vendida, agujas encontradas y colección.
+* El árbol de mejoras.
+* Las agujas destapadas. Las ve todo el mundo y solo se entregan una vez.
+* Las cargas nuevas de paja, que resincronizan a todos los clientes.
+* Posición, nombre y herramienta de cada jugador.
 
-## Limitaciones actuales
+## Idiomas
 
-- Las máquinas que sacan paja del pajar por su cuenta (rastrillo de pistón,
-  brazo robótico, dron, escáner) funcionan **solo en el anfitrión**; en los
-  clientes se ven quietas. Es a propósito: evita que la paja y el dinero se
-  cuenten dos veces.
-- Los objetos sueltos (cubos, sacos, fardos) son de cada jugador.
-- Los ajustes de las máquinas (filtros, interruptores) no se comparten.
-- Las herramientas compradas son de cada jugador; el dinero es común.
-- Solo guarda el anfitrión. Los clientes no tocan sus propias partidas.
-- La tabla de clasificación online se desactiva con el mod puesto, así que
-  ninguna partida modificada llega a ella.
+La interfaz sigue el idioma que tenga puesto el juego. Están incluidos inglés,
+español, alemán, francés, italiano, checo, polaco, ruso, turco, japonés,
+coreano y chino, en `mp_i18n.gd`. Cualquier otro cae en inglés. Los nombres de
+las herramientas no los traduce el mod: salen de las traducciones del propio
+juego, así que se leen igual que en el resto de la interfaz.
 
-## Si algo falla
+## Limitaciones conocidas
 
-**No aparece MULTIPLAYER** — el juego se actualizó y borró `override.cfg`.
-Vuelve a ejecutar `INSTALAR.bat`.
+* Las máquinas que sacan paja del pajar por su cuenta (rastrillo de pistón,
+  brazo robótico, dron, escáner) solo funcionan en el anfitrión. En los
+  clientes se ven quietas. Es a propósito: ejecutarlas en todas partes contaba
+  la paja y el dinero dos veces.
+* Los objetos sueltos (cubos, sacos, fardos) son de cada jugador.
+* Los ajustes de las máquinas, como filtros e interruptores, no se sincronizan.
+* Las herramientas compradas son de cada jugador. El dinero es común.
+* Solo guarda el anfitrión. Los clientes no escriben en sus partidas.
+* La tabla de clasificación online se desactiva con el mod cargado.
 
-**"Steam no disponible"** — abre el juego desde Steam, no desde el .exe.
+## Problemas
 
-**Un amigo no puede entrar** — los dos necesitáis la misma versión del mod; el
-panel indica cuál tienes.
+No aparece MULTIPLAYER: el juego se actualizó y reemplazó `override.cfg`.
+Ejecuta `INSTALAR.bat` otra vez.
 
-**El mundo se ve distinto entre jugadores** — pulsa `F8` para resincronizar.
+"Steam no disponible": el juego se abrió desde el .exe en vez de desde Steam.
 
-**Cualquier otra cosa** — abre un [issue](../../issues) con el registro de
+Un amigo no puede entrar: comprobad que los dos tenéis la misma versión del
+mod. El panel la indica.
+
+El mundo se ve distinto entre jugadores: pulsa F8.
+
+Cualquier otra cosa: abre un [issue](../../issues) con el registro de
 `%APPDATA%\Godot\app_userdata\Haystack Incremental\logs\`.
-
-## Privacidad en directo
-
-El panel no muestra nunca IPs, identificadores de Steam ni códigos de sala. Las
-direcciones locales solo salen si pulsas *Mostrar mis IPs*, en la parte
-avanzada.
 
 ## Cómo funciona
 
-La demo viene en un único `.pck` de Godot cifrado, así que el mod no lo toca.
-En su lugar:
+La demo viene en un único `.pck` de Godot cifrado, que el mod no toca.
 
-- **Carga.** Godot lee `override.cfg` al arrancar. El instalador registra ahí
-  `mp.gd` como autoload, así que el mod son unos cuantos `.gd` fuera del juego.
-- **Steam.** La demo no trae la API de Steam, así que el mod carga la
-  GDExtension de [GodotSteam](https://godotsteam.com) en caliente con
-  `GDExtensionManager.load_extension()` e inicia Steam con el appid de la demo.
-  Eso nos da salas, invitaciones y `SteamMultiplayerPeer`, que hace pasar el
-  tráfico por Steam en vez de por una conexión directa.
-- **Entrar.** El anfitrión serializa su mundo con la misma forma que usa el
-  guardado del juego, lo manda comprimido, y el cliente lo carga con el propio
-  cargador del juego en un hueco aparte, sin tocar sus partidas.
-- **Mantenerlo sincronizado.** El pajar es un mapa de alturas: cada jugador
-  envía los vértices que cambian. Las construcciones se comparan con el
-  `to_array()` del propio juego y se recrean con su propio cargador. El dinero
-  y los contadores se envían como incrementos, con el anfitrión de árbitro.
+Godot lee `override.cfg` al arrancar. El instalador registra ahí `mp.gd` como
+autoload, así que el mod son unos cuantos `.gd` fuera del juego.
+
+La demo no trae la API de Steam, así que el mod carga la GDExtension de
+[GodotSteam](https://godotsteam.com) en caliente con
+`GDExtensionManager.load_extension()` e inicia Steam con el appid de la demo.
+De ahí salen las salas, las invitaciones y `SteamMultiplayerPeer`.
+
+Para que alguien entre, el anfitrión serializa su mundo con el mismo formato
+que usa el juego para guardar, lo envía comprimido y el cliente lo carga con el
+cargador del propio juego en un hueco aparte.
+
+A partir de ahí la sincronización es incremental. El pajar es un mapa de
+alturas y cada jugador envía los vértices que ha cambiado. Las construcciones
+se comparan con el `to_array()` del juego y se recrean con su propio cargador.
+El dinero y los contadores viajan como incrementos, con el anfitrión de
+árbitro.
 
 Todo se aplica recorriendo el árbol de escena en vivo y llamando a los métodos
-del propio juego, así que no se copia ni se redistribuye código del juego.
+del propio juego.
 
-## Para colaboradores
+## Estructura del repositorio
 
-El mod es GDScript en `mods/multiplayer`: `mp.gd` (sesión y RPCs),
-`mp_world.gd` (sincronización), `mp_steam.gd` (Steam), `mp_ui.gd` (panel) y
-`mp_avatar.gd` (la figura del otro jugador). No hay nada que compilar: editas
-un archivo y reinicias el juego.
+```
+mods/multiplayer/     lo que va en la release
+  mp.gd               sesión, salas, RPCs
+  mp_world.gd         sincronización (pajar, construcciones, estado, agujas)
+  mp_steam.gd         carga de GodotSteam, salas, invitaciones
+  mp_ui.gd            panel, chat, avisos
+  mp_avatar.gd        las figuras de los otros jugadores
+  mp_i18n.gd          textos de la interfaz por idioma
+  models/             modelo del granjero (CC0)
+  steam/              GodotSteam GDExtension (compilado)
+dev/mp_test.gd        arnés de pruebas, no se distribuye
+dev/models/           herramientas para preparar el modelo
+docs/                 textos de la página de Nexus
+```
 
-Los otros jugadores son un granjero animado, `mods/multiplayer/models/farmer.glb`,
-que se carga al vuelo con `GLTFDocument` de Godot. El peto y la banda del
-sombrero toman el color del jugador, la cabeza sigue hacia donde mira, las
-piernas se doblan al agacharse y la animación (Idle, Walk, Run) sigue su
-velocidad. Si falta el archivo o no carga, aparece la figura antigua hecha de
-formas básicas. El `.glb` es el original del pack recortado a esas tres
-animaciones con `dev/models/slim_glb.py` (1,3 MB → 500 KB).
+No hay nada que compilar. Editas un archivo y reinicias el juego.
 
-Los modelos de herramienta cuelgan de la mano del avatar, en `mp_avatar.gd`.
-Cada modelo se escala a su largo real (`TOOL_LENGTHS`) por su eje más largo y
-se gira para que la parte útil apunte lejos de la mano; con `flip_tool` en un
-avatar se gira 180 grados, útil al probar un modelo nuevo.
+Los otros jugadores son un granjero animado,
+`mods/multiplayer/models/farmer.glb`, que se carga al vuelo con
+`GLTFDocument`. El peto y la banda del sombrero toman el color del jugador, la
+cabeza sigue hacia donde mira, las piernas se doblan al agacharse y la
+animación (Idle, Walk, Run) sigue su velocidad. Si falta el archivo o no carga,
+aparece una figura antigua hecha de formas básicas. El `.glb` es el original
+del pack recortado a esas tres animaciones con `dev/models/slim_glb.py`, que lo
+deja de 1,3 MB en 500 KB.
 
-`dev/mp_test.gd` es el arnés de pruebas: cópialo junto a `mp.gd` y arranca el
-juego con `MP_TEST_AVATAR=user://saves/slot_1.dat` (y `MP_TEST_TOOL=1` para la
-pala) para sacar una captura de dos muñecos con esa herramienta, uno de ellos
-girado.
+Los modelos de herramienta cuelgan de la mano del avatar. Cada uno se escala a
+su largo real (`TOOL_LENGTHS`) por su eje más largo y se gira para que la parte
+útil apunte lejos de la mano. Con `flip_tool` en un avatar se gira 180 grados,
+útil al probar un modelo nuevo.
+
+Para usar el arnés de pruebas, copia `dev/mp_test.gd` junto a `mp.gd` y arranca
+el juego con `MP_TEST_AVATAR=user://saves/slot_1.dat`, y `MP_TEST_TOOL=1` para
+la pala. Coloca dos muñecos con esa herramienta, uno de ellos girado, y guarda
+una captura.
 
 ## Créditos
 
-- Mod de **AleDev11**.
-- *Find The Needle*, de [FindTheNeedleDev](https://x.com/haydeveloper).
-- Modelo del granjero del [Ultimate Modular Men Pack](https://quaternius.com/packs/ultimatemodularcharacters.html),
-  de **Quaternius** — CC0.
-- [GodotSteam GDExtension](https://godotsteam.com) — MIT.
-- Steamworks SDK — © Valve Corporation.
+Mod de AleDev11. Find The Needle, de
+[FindTheNeedleDev](https://x.com/haydeveloper).
+Modelo del granjero del [Ultimate Modular Men Pack](https://quaternius.com/packs/ultimatemodularcharacters.html),
+de Quaternius, CC0. [GodotSteam](https://godotsteam.com) es MIT. El SDK de
+Steamworks es de Valve.
 
-## Licencia
-
-El código propio del mod es MIT: ver [LICENSE](LICENSE). Este repositorio no
-contiene recursos ni código del juego.
+Licencia MIT, ver [LICENSE](LICENSE).

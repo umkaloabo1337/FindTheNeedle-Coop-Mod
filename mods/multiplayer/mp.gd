@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.4.0"
+const VERSION := "0.5.0"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8
 const WORLD_CHUNK := 60000
@@ -26,10 +26,11 @@ var world_sync: Node = null
 var phase: int = Phase.OFFLINE
 var is_host := false
 var players := {}  # peer id -> {name, color, state}
-var my_name := "Jugador"
+var my_name := "Player"  # replaced by the Steam name or the saved one
 var last_ip := "127.0.0.1"
 var last_port := DEFAULT_PORT
 
+var i18n: RefCounted = null  # mp_i18n.gd: UI strings in the game's language
 var steam: Node = null  # mp_steam.gd: Steam relay transport (no port forwarding)
 var over_steam := false  # is the current session running through Steam?
 
@@ -46,6 +47,7 @@ var _steam_joining := false  # we asked to join someone else (Steam also
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	base_dir = get_script().resource_path.get_base_dir()
+	i18n = load(base_dir + "/mp_i18n.gd").new()
 	_load_settings()
 	ui = load(base_dir + "/mp_ui.gd").new()
 	ui.mp = self
@@ -69,11 +71,16 @@ func _ready() -> void:
 			var test: Node = test_script.new()
 			test.mp = self
 			add_child(test)
-	for f in ["mp_world.gd", "mp_avatar.gd"]:
+	for f in ["mp_world.gd", "mp_avatar.gd", "mp_i18n.gd"]:
 		var s: Script = load(base_dir + "/" + f)
 		if s == null or not s.can_instantiate():
 			push_error("[MPMod] %s failed to compile" % f)
 	print("[MPMod] v%s loaded from %s" % [VERSION, base_dir])
+
+
+# UI string in whatever language the game is set to.
+func t(key: String) -> String:
+	return i18n.t(key)
 
 
 func _process(_delta: float) -> void:
@@ -104,7 +111,7 @@ func _on_scene_changed(cs: Node) -> void:
 		ui.hook_menu(cs)
 		if active() and not is_host and phase == Phase.IN_WORLD:
 			# client walked back to the title: that ends its session
-			leave("Has salido de la partida.")
+			leave(t("left_game"))
 		elif active() and is_host:
 			# clients drop back to the lobby and get the world again when we return
 			for pid in players.keys():
@@ -132,7 +139,7 @@ func _start_world_sync(world: Node) -> void:
 		_mp_world_load = false
 		phase = Phase.IN_WORLD
 		world_sync.place_at_spawn()
-		ui.notify("Conectado al pajar del anfitrión.")
+		ui.notify(t("connected_yard"))
 		_rx_client_ready.rpc_id(1)
 
 
@@ -176,24 +183,24 @@ func steam_ready() -> bool:
 
 func host_steam() -> bool:
 	if not steam_ready():
-		ui.notify("Steam no está disponible. Abre el juego desde Steam e inténtalo otra vez.")
+		ui.notify(t("steam_unavailable_long"))
 		return false
 	if active():
 		leave()
 	_steam_hosting = true
 	_steam_joining = false
-	ui.notify("Creando la partida en Steam...")
+	ui.notify(t("steam_creating"))
 	steam.host_lobby(MAX_PEERS)
 	return true
 
 
 func join_steam(lobby_id: int) -> bool:
 	if not steam_ready():
-		ui.notify("Steam no está disponible.")
+		ui.notify(t("steam_unavailable"))
 		return false
 	if active():
 		leave()
-	ui.notify("Entrando en la partida de Steam...")
+	ui.notify(t("steam_entering"))
 	_steam_joining = true
 	_steam_hosting = false
 	phase = Phase.CONNECTING
@@ -206,7 +213,7 @@ func invite_friends() -> void:
 	if steam_ready() and steam.lobby_id != 0:
 		steam.invite_overlay()
 	else:
-		ui.notify("Primero crea la partida.")
+		ui.notify(t("create_first"))
 
 
 func _on_steam_lobby_created(ok: bool, id: int) -> void:
@@ -214,17 +221,17 @@ func _on_steam_lobby_created(ok: bool, id: int) -> void:
 		return
 	_steam_hosting = false
 	if not ok:
-		ui.notify("Steam no pudo crear la partida.")
+		ui.notify(t("steam_create_failed"))
 		return
 	var peer: MultiplayerPeer = steam.make_peer()
 	if peer == null:
-		ui.notify("No se pudo crear la conexión de Steam.")
+		ui.notify(t("steam_peer_failed"))
 		return
 	peer.call("host_with_lobby", id)
 	multiplayer.multiplayer_peer = peer
 	over_steam = true
 	_become_host()
-	ui.notify("Partida creada. Pulsa INVITAR AMIGOS o invítalos desde Steam.")
+	ui.notify(t("game_created"))
 
 
 func _on_steam_lobby_joined(ok: bool, id: int, reason: String) -> void:
@@ -232,11 +239,11 @@ func _on_steam_lobby_joined(ok: bool, id: int, reason: String) -> void:
 		return  # Steam tells the creator it "joined" its own lobby; ignore that
 	_steam_joining = false
 	if not ok:
-		leave("No se pudo entrar en la partida de Steam (%s)." % reason)
+		leave(t("steam_join_failed") % reason)
 		return
 	var peer: MultiplayerPeer = steam.make_peer()
 	if peer == null:
-		leave("No se pudo crear la conexión de Steam.")
+		leave(t("steam_peer_failed"))
 		return
 	peer.call("connect_to_lobby", id)
 	multiplayer.multiplayer_peer = peer
@@ -262,7 +269,7 @@ func _become_host() -> void:
 		world_sync.rebaseline()
 		world_sync.apply_session_rules()
 	if not in_world():
-		ui.notify("Ahora crea o carga una partida: tus amigos entrarán en ella.")
+		ui.notify(t("now_load"))
 	ui.refresh()
 
 
@@ -272,13 +279,13 @@ func host(port: int) -> bool:
 	var peer := ENetMultiplayerPeer.new()
 	var err := peer.create_server(port, MAX_PEERS)
 	if err != OK:
-		ui.notify("No se pudo abrir el puerto %d (error %d). ¿Otro programa lo usa?" % [port, err])
+		ui.notify(t("port_failed") % [port, err])
 		return false
 	multiplayer.multiplayer_peer = peer
 	over_steam = false
 	last_port = port
 	_save_settings()
-	ui.notify("Servidor abierto en el puerto %d." % port)
+	ui.notify(t("server_open") % port)
 	_become_host()
 	return true
 
@@ -289,7 +296,7 @@ func join(ip: String, port: int) -> bool:
 	var peer := ENetMultiplayerPeer.new()
 	var err := peer.create_client(ip, port)
 	if err != OK:
-		ui.notify("No se pudo crear la conexión (error %d)." % err)
+		ui.notify(t("peer_failed") % err)
 		return false
 	multiplayer.multiplayer_peer = peer
 	over_steam = false
@@ -298,7 +305,7 @@ func join(ip: String, port: int) -> bool:
 	last_ip = ip
 	last_port = port
 	_save_settings()
-	ui.notify("Conectando con el anfitrión...")  # no addresses on screen: people stream this
+	ui.notify(t("connecting"))  # no addresses on screen: people stream this
 	ui.refresh()
 	return true
 
@@ -346,7 +353,7 @@ func _on_peer_connected(id: int) -> void:
 
 func _on_peer_disconnected(id: int) -> void:
 	if players.has(id):
-		ui.notify("%s se ha ido." % players[id]["name"])
+		ui.notify(t("left") % players[id]["name"])
 		players.erase(id)
 	if world_sync != null:
 		world_sync.remove_avatar(id)
@@ -359,17 +366,17 @@ func _on_peer_disconnected(id: int) -> void:
 
 func _on_connected() -> void:
 	phase = Phase.LOBBY
-	ui.notify("Conectado. Esperando al anfitrión...")
+	ui.notify(t("connected_waiting"))
 	_rx_hello.rpc_id(1, my_name, VERSION)
 	ui.refresh()
 
 
 func _on_connection_failed() -> void:
-	leave("No se pudo conectar. Revisa la IP, el puerto y el firewall.")
+	leave(t("connect_failed"))
 
 
 func _on_server_disconnected() -> void:
-	leave("El anfitrión cerró la partida.")
+	leave(t("host_closed"))
 
 
 func _broadcast_host_in_world(on: bool) -> void:
@@ -382,7 +389,7 @@ func _broadcast_host_in_world(on: bool) -> void:
 func player_name(id: int) -> String:
 	if players.has(id):
 		return str(players[id]["name"])
-	return "Jugador %d" % id
+	return t("player_fallback") % id
 
 
 func player_color(id: int) -> Color:
@@ -399,7 +406,7 @@ func _rx_hello(pname: String, ver: String) -> void:
 		return
 	var id := multiplayer.get_remote_sender_id()
 	if ver != VERSION:
-		_rx_kick.rpc_id(id, "Versión del mod distinta (anfitrión %s, tú %s)." % [VERSION, ver])
+		_rx_kick.rpc_id(id, t("version_mismatch") % [VERSION, ver])
 		return
 	var used := {}
 	for p in players.values():
@@ -411,9 +418,9 @@ func _rx_hello(pname: String, ver: String) -> void:
 			break
 	pname = pname.strip_edges().substr(0, 24)
 	if pname == "":
-		pname = "Jugador %d" % id
+		pname = t("player_fallback") % id
 	players[id] = {"name": pname, "color": col, "state": "lobby"}
-	ui.notify("%s se ha unido." % pname)
+	ui.notify(t("joined") % pname)
 	_rx_players.rpc(players)
 	ui.refresh()
 	if in_world():
@@ -437,11 +444,11 @@ func _rx_players(list: Dictionary) -> void:
 		phase = Phase.LOBBY
 		SaveManager.block_save = false
 		SaveManager.use_player_saves()
-		ui.notify("El anfitrión ha vuelto al menú. Esperando a que cargue otra vez...")
+		ui.notify(t("host_back_menu"))
 		get_tree().change_scene_to_file(MENU_SCENE)
 	elif not is_host and players.has(1) and phase == Phase.LOBBY:
 		if str(players[1].get("state", "")) != "world":
-			ui.set_status("El anfitrión aún está en el menú. Te meterás en cuanto cargue la partida.")
+			ui.set_status(t("host_in_menu"))
 	ui.refresh()
 
 
@@ -494,7 +501,7 @@ func send_world(id: int) -> void:
 func _rx_world_begin(raw_size: int, packed_size: int, chunks: int) -> void:
 	_world_rx = {"raw": raw_size, "size": packed_size, "n": chunks, "parts": {}}
 	phase = Phase.LOADING
-	ui.set_status("Recibiendo el mundo del anfitrión...")
+	ui.set_status(t("receiving_world"))
 	ui.set_progress(0.0)
 
 
@@ -513,14 +520,14 @@ func _rx_world_end() -> void:
 	var packed := PackedByteArray()
 	for i in int(_world_rx["n"]):
 		if not _world_rx["parts"].has(i):
-			leave("El mundo llegó incompleto. Vuelve a intentarlo.")
+			leave(t("world_incomplete"))
 			return
 		packed.append_array(_world_rx["parts"][i])
 	var raw := packed.decompress(int(_world_rx["raw"]), FileAccess.COMPRESSION_ZSTD)
 	_world_rx.clear()
 	var payload: Variant = bytes_to_var(raw)
 	if typeof(payload) != TYPE_DICTIONARY:
-		leave("No se pudo leer el mundo del anfitrión.")
+		leave(t("world_unreadable"))
 		return
 	ui.set_progress(-1.0)
 	_enter_mp_world(payload)
@@ -532,7 +539,7 @@ func _enter_mp_world(payload: Dictionary) -> void:
 	var path := SaveManager.slot_path(0)
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
-		leave("No se pudo escribir el mundo temporal (%d)." % FileAccess.get_open_error())
+		leave(t("world_write_failed") % FileAccess.get_open_error())
 		return
 	f.store_var(payload, true)
 	f.close()
@@ -540,7 +547,7 @@ func _enter_mp_world(payload: Dictionary) -> void:
 	SaveManager.begin_load(0)
 	_mp_world_load = true
 	phase = Phase.LOADING
-	ui.set_status("Cargando el pajar del anfitrión...")
+	ui.set_status(t("loading_world"))
 	ui.close_panel()
 	Loading.show_screen("FIND THE NEEDLE", "ENTRANDO AL PAJAR DE %s" % player_name(1).to_upper())
 	Loading.enter_scene(GAME_SCENE)
@@ -566,10 +573,10 @@ func request_resync() -> void:
 		return
 	if is_host:
 		resync_all()
-		ui.notify("Resincronizando a todos los jugadores...")
+		ui.notify(t("resyncing_all"))
 	else:
 		_rx_request_world.rpc_id(1)
-		ui.notify("Pidiendo el mundo al anfitrión...")
+		ui.notify(t("asking_world"))
 
 
 # ---------------------------------------------------------------- in-world RPCs (forwarded to mp_world)
@@ -671,7 +678,7 @@ func default_name() -> String:
 	if steam != "":
 		return steam.substr(0, 24)
 	var user := OS.get_environment("USERNAME")
-	return user.substr(0, 24) if user != "" else "Jugador"
+	return user.substr(0, 24) if user != "" else t("default_name")
 
 
 var _steam_name_cache: Variant = null
