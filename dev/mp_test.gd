@@ -97,6 +97,15 @@ func _process(delta: float) -> void:
 		if wt > 26.0 and not _did.has("props2"):
 			_did["props2"] = true
 			_act_props_move()
+		if wt > 19.0 and not _did.has("hands"):
+			_did["hands"] = true
+			_act_hands()
+		if wt > 26.0 and not _did.has("hands2") and role == "host":
+			_did["hands2"] = true
+			_act_hands()
+		if wt > 29.5 and not _did.has("hand_shot") and role == "join":
+			_did["hand_shot"] = true
+			_shoot_hands()
 		if wt > 22.0 and not _did.has("straws") and role == "host":
 			_did["straws"] = true
 			_act_straws()
@@ -317,7 +326,7 @@ func _report() -> void:
 		if is_instance_valid(b):
 			nn += 1
 	print("[MPTEST] needles=%d money=%.2f hay_total=%.1f hay_dug=%.1f heights_sum=%.3f builds=%d avatars=%d tech=%d players=%d %s" % [
-		nn, GameState.money, GameState.hay_total, GameState.hay_dug, sum, nb, ws.avatars.size(), Tech.ranks.size(), mp.players.size(), _props_line() + " " + _mach_line() + " " + _probe_part() + " " + _straw_line()])
+		nn, GameState.money, GameState.hay_total, GameState.hay_dug, sum, nb, ws.avatars.size(), Tech.ranks.size(), mp.players.size(), _props_line() + " " + _mach_line() + " " + _probe_part() + " " + _straw_line() + " " + _hand_line()])
 
 
 # both players meet at the (open) new-game spawn; the client looks at the host
@@ -385,11 +394,28 @@ func _show_avatar() -> void:
 		av.flip_tool = i == 1
 		ws.world.add_child(av)
 		av.set_target(mid + Vector3(float(i) * 2.4 - 1.2, 0.0, 0.0), PI, 0.0, tool_id, 0.0, 0.0)
+		# left one holds straw in its fist, right one a needle
+		ws.avatars[901 + i] = av
+		av.set_hands(4 if i == 0 else 0, -1 if i == 0 else 2)
+		if i == 0 and ws.strands_sync != null:
+			ws.strands_sync.set_hand(901, 4)
 	var d := mid - p.global_position
 	p.set_look(atan2(-d.x, -d.z), -0.05)
 	await get_tree().create_timer(2.0).timeout
 	await _shot("tool%d" % tool_id)
 	print("[MPTEST] tool shot done for tool %d" % tool_id)
+	# close up, bare hands: the straws and the needle are small
+	for i in 2:
+		var who: Node3D = ws.avatars[901 + i]
+		who.set_target(mid + Vector3(float(i) * 1.2 - 0.6, 0.0, 0.0), PI, 0.0, 0, 0.0, 0.0)
+	var near: Vector3 = mid + Vector3(-0.1, 0.0, 1.5)
+	p.global_position = ws.world._seat(near)
+	await get_tree().create_timer(0.8).timeout
+	var look: Vector3 = (mid + Vector3(0.0, 1.15, 0.0)) - p.eye_position()
+	p.set_look(atan2(-look.x, -look.z), atan2(look.y, Vector2(look.x, look.z).length()))
+	await get_tree().create_timer(1.2).timeout
+	await _shot("hands")
+	print("[MPTEST] hands shot: straws=%d" % int((ws.avatars[901] as Node).straws_held()))
 	mp.host_steam()
 	await get_tree().create_timer(5.0).timeout
 	ws.player.set_look(ws.player.rotation.y, -1.15)
@@ -532,3 +558,56 @@ func _wiggle_part() -> void:
 		await get_tree().process_frame
 	p.position = base
 	print("[MPTEST] host stopped wiggling")
+
+
+# put a couple of straws in our own hands, so the other side should draw them
+# in the farmer's fist
+func _act_hands() -> void:
+	var ws: Node = mp.world_sync
+	var live: Node = ws._live()
+	var hand: Variant = ws.player.get("hand")
+	if hand == null:
+		print("[MPTEST] %s has no hand tool" % role)
+		return
+	var at: Vector3 = ws.player.global_position + Vector3(0.4, 1.2, 0.0)
+	var took := 0
+	for i in 2:
+		var b: Variant = live.spawn(at + Vector3(0.0, 0.1 * float(i), 0.0), Basis(),
+			Vector3.ZERO, Color(0.9, 0.78, 0.45))
+		if b == null:
+			continue
+		hand._grab(b)
+		took += 1
+	print("[MPTEST] %s holds %d straws (hand says %d)" % [role, took, int(hand.count())])
+
+
+func _hand_line() -> String:
+	var ws: Node = mp.world_sync
+	var out: Array = []
+	for id in ws.avatars:
+		var a: Variant = ws.avatars[id]
+		if a != null and is_instance_valid(a) and a.has_method("straws_held"):
+			out.append("%d:%d" % [id, int(a.straws_held())])
+	var ss: Variant = ws.strands_sync
+	var parked := 0
+	if ss != null:
+		for pid in ss._hands:
+			parked += (ss._hands[pid] as Array).size()
+	return "hands=[%s] parked=%d" % [",".join(PackedStringArray(out)), parked]
+
+
+# stand close and photograph what the other farmer is holding
+func _shoot_hands() -> void:
+	var ws: Node = mp.world_sync
+	for id in ws.avatars:
+		var a: Node3D = ws.avatars[id]
+		var p: Node3D = ws.player
+		var at: Vector3 = a.global_position
+		p.global_position = ws.world._seat(at + Vector3(1.6, 0.0, 0.0))
+		await get_tree().create_timer(0.5).timeout
+		var d: Vector3 = (at + Vector3(0.0, 1.3, 0.0)) - p.eye_position()
+		p.set_look(atan2(-d.x, -d.z), atan2(d.y, Vector2(d.x, d.z).length()))
+		await get_tree().create_timer(1.0).timeout
+		await _shot("hands")
+		print("[MPTEST] %s photographed %d holding %d straws" % [role, id, int(a.straws_held())])
+		return

@@ -82,6 +82,7 @@ contar para la clasificación.
 * Lo que va montado en las cintas.
 * La paja suelta del suelo, para que todos caven sobre el mismo desorden.
 * Cómo se mueven las máquinas, su humo y sus luces, y sus ajustes.
+* La paja y la aguja que llevas en la mano, dibujadas en el puño del granjero.
 
 ## Idiomas
 
@@ -96,8 +97,8 @@ juego, así que se leen igual que en el resto de la interfaz.
 * Las máquinas funcionan solo en el anfitrión, para que la misma paja no se
   cuente dos veces. Los demás las ven moverse, echar humo y encender luces, y
   sus ajustes coinciden, pero el trabajo lo hace una sola máquina.
-* La paja que llevas en la mano todavía no se le dibuja en las manos a tu
-  granjero. La del suelo sí se comparte.
+* La paja cargada en una herramienta, en la pala o la horca, no se les dibuja
+  a los demás. La de la mano y la del suelo sí.
 * Las herramientas compradas son de cada jugador. El dinero es común.
 * Solo guarda el anfitrión. Los clientes no escriben en sus partidas.
 * La tabla de clasificación online se desactiva con el mod cargado.

@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.10.0"
+const VERSION := "0.11.0"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8
 const WORLD_CHUNK := 60000
@@ -582,9 +582,9 @@ func request_resync() -> void:
 # ---------------------------------------------------------------- in-world RPCs (forwarded to mp_world)
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", 2)
-func _rx_pose(pos: Vector3, yaw: float, pitch: float, tool: int, crouch: float, moving: float) -> void:
+func _rx_pose(pos: Vector3, yaw: float, pitch: float, tool: int, crouch: float, moving: float, hands: int) -> void:
 	if world_sync != null:
-		world_sync.on_pose(multiplayer.get_remote_sender_id(), pos, yaw, pitch, tool, crouch, moving)
+		world_sync.on_pose(multiplayer.get_remote_sender_id(), pos, yaw, pitch, tool, crouch, moving, hands)
 
 
 @rpc("any_peer", "call_remote", "reliable", 3)

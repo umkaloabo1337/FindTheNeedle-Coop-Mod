@@ -1,4 +1,4 @@
-FIND THE NEEDLE CO-OP MOD  v0.10.0
+FIND THE NEEDLE CO-OP MOD  v0.11.0
 ==================================
 
 Unofficial mod. Every player needs the game (the free Steam demo) and this
@@ -60,14 +60,15 @@ WHAT IS SHARED
   - What is riding on the belts.
   - Loose straw on the ground, so everyone digs into the same mess.
   - How the machines move, their smoke and lamps, and their settings.
+  - The straw and the needle in your bare hands, in your farmer's fist.
 
 KNOWN LIMITATIONS
 -----------------
   - Machines run on the host only, so the same hay cannot be counted twice.
     Clients see them move, smoke and light up, and their settings match, but
     the work itself happens on one machine.
-  - The hay in your own hands is not drawn on your farmer for the others
-    yet. Straw on the ground is shared; straw on your fork is not.
+  - Hay loaded on a tool, a shovel or a fork, is not drawn for the others.
+    What is in your bare hands, and straw on the ground, is.
   - Bought tools are per player. Money is shared.
   - Only the host saves. Clients never write to their own saves.
   - The online leaderboard is disabled while the mod is loaded.

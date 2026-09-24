@@ -1,4 +1,4 @@
-MOD COOPERATIVO PARA FIND THE NEEDLE  v0.10.0
+MOD COOPERATIVO PARA FIND THE NEEDLE  v0.11.0
 =============================================
 
 Mod no oficial. Todos los jugadores necesitan el juego (la demo, gratis en
@@ -61,14 +61,15 @@ QUE SE COMPARTE
   - Lo que va montado en las cintas.
   - La paja suelta del suelo, para que todos caven sobre el mismo desorden.
   - Como se mueven las maquinas, su humo y sus luces, y sus ajustes.
+  - La paja y la aguja de la mano, dibujadas en el puno del granjero.
 
 LIMITACIONES CONOCIDAS
 ----------------------
   - Las maquinas funcionan solo en el anfitrion, para que la misma paja no se
     cuente dos veces. Los demas las ven moverse, echar humo y encender luces,
     y sus ajustes coinciden, pero el trabajo lo hace una sola maquina.
-  - La paja que llevas en la mano todavia no se le dibuja en las manos a tu
-    granjero. La del suelo si se comparte.
+  - La paja cargada en una herramienta, pala u horca, no se les dibuja a
+    los demas. La de la mano y la del suelo si.
   - Las herramientas compradas son de cada jugador. El dinero es comun.
   - Solo guarda el anfitrion. Los clientes no escriben en sus partidas.
   - La tabla de clasificacion online se desactiva con el mod cargado.

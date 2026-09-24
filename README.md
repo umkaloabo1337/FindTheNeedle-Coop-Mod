@@ -80,6 +80,7 @@ counting for the leaderboards.
 * What is riding on the belts.
 * Loose straw on the ground, so everyone digs into the same mess.
 * How the machines move, their smoke and lamps, and their settings.
+* The straw and the needle in your bare hands, drawn in your farmer's fist.
 
 ## Languages
 
@@ -94,8 +95,8 @@ translations, so they read the same as in the rest of the UI.
 * Machines run on the host only, so the same hay cannot be counted twice.
   Clients see them move, smoke and light up, and their settings match, but the
   work itself happens on one machine.
-* The hay in your own hands is not drawn on your farmer for the others yet.
-  Straw on the ground is shared; straw on your fork is not.
+* Hay loaded on a tool, in a shovel or a fork, is not drawn for the others.
+  What is in your bare hands, and straw on the ground, is.
 * Bought tools are per player. Money is shared.
 * Only the host saves. Clients never write to their own save files.
 * The online leaderboard is disabled while the mod is loaded.

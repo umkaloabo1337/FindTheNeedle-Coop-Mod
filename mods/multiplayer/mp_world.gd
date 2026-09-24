@@ -237,10 +237,25 @@ func _send_pose() -> void:
 		crouch = float(player.crouch_amount())
 	var moving: float = (player.velocity * Vector3(1, 0, 1)).length() if "velocity" in player else 0.0
 	mp._rx_pose.rpc(player.global_position, player.rotation.y, pitch,
-		int(player.get("current_tool")), crouch, moving)
+		int(player.get("current_tool")), crouch, moving, _hands())
 
 
-func on_pose(id: int, pos: Vector3, yaw: float, pitch: float, tool: int, crouch: float, moving: float) -> void:
+# What is in our bare hands, in one number: how many straws in the low four
+# bits, and the type of needle above that (0 for none).
+func _hands() -> int:
+	var hand: Variant = player.get("hand")
+	if hand == null or not is_instance_valid(hand):
+		return 0
+	var straws: int = clampi(int(hand.count()), 0, 15)
+	var needle := 0
+	if hand.has_method("held_needle_index"):
+		var idx: int = int(hand.held_needle_index())
+		if idx >= 0:
+			needle = int(GameState.type_of(idx)) + 1
+	return straws | (needle << 4)
+
+
+func on_pose(id: int, pos: Vector3, yaw: float, pitch: float, tool: int, crouch: float, moving: float, hands: int = 0) -> void:
 	var a: Node = avatars.get(id)
 	if a == null or not is_instance_valid(a):
 		a = _avatar_script.new()
@@ -249,9 +264,15 @@ func on_pose(id: int, pos: Vector3, yaw: float, pitch: float, tool: int, crouch:
 		a.global_position = pos
 		avatars[id] = a
 	a.set_target(pos, yaw, pitch, tool, crouch, moving)
+	if a.has_method("set_hands"):
+		a.set_hands(hands & 15, ((hands >> 4) & 15) - 1)
+	if strands_sync != null and is_instance_valid(strands_sync):
+		strands_sync.set_hand(id, hands & 15)
 
 
 func remove_avatar(id: int) -> void:
+	if strands_sync != null and is_instance_valid(strands_sync):
+		strands_sync.drop_hand(id)
 	var a: Node = avatars.get(id)
 	if a != null and is_instance_valid(a):
 		a.queue_free()

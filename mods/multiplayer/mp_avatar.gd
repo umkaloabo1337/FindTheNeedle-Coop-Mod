@@ -873,3 +873,53 @@ func _aabb(n: Node, xf: Transform3D) -> AABB:
 			else:
 				out = out.merge(cb)
 	return out
+
+
+# ---------------------------------------------------------------- hands
+
+# What the player is holding in their bare hands: a number of straws, and a
+# needle by type (-1 for none). The straws themselves are parked here by
+# mp_strands, which owns the straw pool; the needle is a mesh of our own.
+var _straws_held := 0
+var _needle_mi: MeshInstance3D
+
+
+func set_hands(straws: int, needle_type: int) -> void:
+	_straws_held = clampi(straws, 0, 15)
+	_show_needle(needle_type)
+
+
+func straws_held() -> int:
+	return _straws_held
+
+
+# where a held thing sits, in world space
+func hand_xform() -> Transform3D:
+	if _hand != null and is_instance_valid(_hand):
+		return _hand.global_transform
+	return global_transform
+
+
+func _show_needle(type: int) -> void:
+	if type < 0:
+		if _needle_mi != null and is_instance_valid(_needle_mi):
+			_needle_mi.queue_free()
+		_needle_mi = null
+		return
+	if _needle_mi == null or not is_instance_valid(_needle_mi):
+		_needle_mi = MeshInstance3D.new()
+		_needle_mi.name = "HeldNeedle"
+		if _hand != null and is_instance_valid(_hand):
+			_hand.add_child(_needle_mi)
+		else:
+			add_child(_needle_mi)
+	if int(_needle_mi.get_meta("type", -99)) == type:
+		return
+	_needle_mi.set_meta("type", type)
+	_needle_mi.mesh = StrandFactory.needle_model(type)
+	var mats: Array[Material] = StrandFactory.needle_surface_materials(type)
+	for i in mats.size():
+		_needle_mi.set_surface_override_material(i, mats[i])
+	# pinched between the fingers, pointing the way they look
+	_needle_mi.transform = Transform3D(Basis(Vector3.RIGHT, -1.2), Vector3(0.0, -0.02, -0.14)) \
+		* StrandFactory.needle_visual_xform(type)

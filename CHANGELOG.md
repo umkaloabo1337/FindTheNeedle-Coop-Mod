@@ -1,7 +1,13 @@
 # Changelog
 
-## Unreleased
+## v0.11.0
 
+* You can see what somebody is holding. Straw picked up by hand shows in the
+  remote farmer's fist, fanned out the way the game holds it, and a needle
+  shows as the needle it really is. The pose packet carries one more number
+  for it; nothing else changed on the wire.
+* Straw held in a hand, a bucket or on a tool is no longer also scattered on
+  everyone else's floor. It travels with whatever holds it.
 * Other players see you push the wheelbarrow. Your farmer holds it by both
   handles, leans into it and puts the tool away, instead of standing next to
   a barrow that floats where your first-person view has it. It has a

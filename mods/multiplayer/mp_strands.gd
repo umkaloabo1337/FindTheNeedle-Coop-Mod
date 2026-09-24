@@ -50,6 +50,12 @@ func shutdown() -> void:
 			_revive(b)
 			live.consume(b)
 	_ghost.clear()
+	for pid in _hands:
+		for b in _hands[pid]:
+			if b != null and is_instance_valid(b) and live != null:
+				_revive(b)
+				live.consume(b)
+	_hands.clear()
 	_mine.clear()
 	_sent.clear()
 	_owner.clear()
@@ -67,11 +73,13 @@ func _new_sid() -> int:
 # ------------------------------------------------------------------ ticks
 
 func _process(delta: float) -> void:
+	if live == null or not is_instance_valid(live):
+		return
+	# keeps following the fist even if the link hiccups
+	_park_hands()
 	if mp == null or not mp.active() or multiplayer.multiplayer_peer == null:
 		return
 	if multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
-		return
-	if live == null or not is_instance_valid(live):
 		return
 	_scan_t += delta
 	if _scan_t >= SCAN_TICK:
@@ -122,6 +130,10 @@ func _scan() -> void:
 			if b == null or not is_instance_valid(b):
 				continue
 			if b.has_meta("mp_ghost") or b.has_meta("needle_index"):
+				continue
+			# straw in a hand, a bucket or on a tool travels with whatever
+			# holds it, so it is not ours to scatter on the floor
+			if bool(b.get_meta("protected", false)):
 				continue
 			var body := b as Node3D
 			if not _near(body.global_position, watchers):
@@ -269,3 +281,68 @@ func peer_gone(pid: int) -> void:
 			gone.append(sid)
 	for sid in gone:
 		_drop_ghost(sid)
+
+
+# ------------------------------------------------------------------ in the hand
+
+# Straw a remote player is holding. Their own game parks the real bodies in
+# front of their camera; here we put copies in their farmer's hand so the
+# others can see them carry it.
+
+const HAND_FAN := 0.05
+# the hand node hangs down the arm: a short step along -Z is the fist itself
+const HAND_REACH := 0.13
+const HAND_DROP := -0.03
+
+var _hands := {}     # peer -> Array of straw bodies we keep for them
+
+
+func set_hand(pid: int, count: int) -> void:
+	if live == null or not is_instance_valid(live):
+		return
+	var held: Array = _hands.get(pid, [])
+	count = clampi(count, 0, 12)
+	while held.size() > count:
+		var b: Variant = held.pop_back()
+		if b != null and is_instance_valid(b):
+			_revive(b)
+			live.consume(b)
+	while held.size() < count:
+		var b: Variant = live.spawn(Vector3.ZERO, Basis(), Vector3.ZERO,
+			Color(0.86, 0.74, 0.4), true)
+		if b == null:
+			break
+		b.set_meta("mp_ghost", true)
+		held.append(b)
+	if held.is_empty():
+		_hands.erase(pid)
+	else:
+		_hands[pid] = held
+
+
+# fanned out in front of the fist, the way the game holds them
+func _park_hands() -> void:
+	if _hands.is_empty():
+		return
+	var ws: Node = mp.world_sync
+	if ws == null or not is_instance_valid(ws):
+		return
+	for pid in _hands.keys():
+		var av: Variant = ws.avatars.get(pid)
+		if av == null or not is_instance_valid(av) or not av.has_method("hand_xform"):
+			set_hand(int(pid), 0)
+			continue
+		var base: Transform3D = av.hand_xform()
+		var held: Array = _hands[pid]
+		for i in held.size():
+			var b: Variant = held[i]
+			if b == null or not is_instance_valid(b):
+				continue
+			var side := (float(i) - float(held.size() - 1) * 0.5) * HAND_FAN
+			var xf := base * Transform3D(Basis(Vector3.UP, side * 1.6),
+				Vector3(side, HAND_DROP, -HAND_REACH))
+			(b as Node3D).global_transform = xf
+
+
+func drop_hand(pid: int) -> void:
+	set_hand(pid, 0)
