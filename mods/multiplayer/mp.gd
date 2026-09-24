@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.11.0"
+const VERSION := "0.12.0"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8
 const WORLD_CHUNK := 60000
@@ -769,6 +769,13 @@ func _rx_straw_census(ids: PackedInt64Array) -> void:
 	var s := _straws()
 	if s != null:
 		s.on_census(multiplayer.get_remote_sender_id(), ids)
+
+
+@rpc("any_peer", "call_remote", "reliable", 11)
+func _rx_straw_claim(sid: int) -> void:
+	var s := _straws()
+	if s != null:
+		s.on_claim(multiplayer.get_remote_sender_id(), sid)
 
 
 # ---------------------------------------------------------------- settings

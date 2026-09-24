@@ -77,6 +77,7 @@ func _process(delta: float) -> void:
 		return
 	# keeps following the fist even if the link hiccups
 	_park_hands()
+	_watch_hand()
 	if mp == null or not mp.active() or multiplayer.multiplayer_peer == null:
 		return
 	if multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
@@ -215,7 +216,9 @@ func on_add(sender: int, adds: Array) -> void:
 		if b == null:
 			continue
 		b.set_meta("mp_ghost", true)
-		(b as Node3D).global_transform = xf
+		b.set_meta("mp_gid", sid)
+		_solid(b)
+		_place(b, xf)
 		_ghost[sid] = b
 		_owner[sid] = sender
 
@@ -228,9 +231,9 @@ func on_move(ids: PackedInt64Array, rows: PackedFloat32Array) -> void:
 		var k := i * 7
 		if k + 6 >= rows.size():
 			return
-		(b as Node3D).global_transform = Transform3D(
+		_place(b, Transform3D(
 			Basis(Quaternion(rows[k + 3], rows[k + 4], rows[k + 5], rows[k + 6])),
-			Vector3(rows[k], rows[k + 1], rows[k + 2]))
+			Vector3(rows[k], rows[k + 1], rows[k + 2])))
 
 
 func on_del(ids: PackedInt64Array) -> void:
@@ -346,3 +349,66 @@ func _park_hands() -> void:
 
 func drop_hand(pid: int) -> void:
 	set_hand(pid, 0)
+
+
+# ------------------------------------------------------------------ picking up
+
+# A copy starts life outside the physics world, which is cheap but means the
+# aim ray goes straight through it: you could see your friend's straw and not
+# pick it up. Put it back in as a still, solid body. It collides with nothing
+# itself, so it neither falls nor pushes anyone; the owner says where it is.
+func _solid(b: Node) -> void:
+	_revive(b)
+	b.collision_layer = Cfg.L_STRAND
+	b.collision_mask = 0
+	b.freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
+	b.freeze = true
+	b.continuous_cd = false
+
+
+func _place(b: Node, xf: Transform3D) -> void:
+	PhysicsServer3D.body_set_state(b.get_rid(),
+		PhysicsServer3D.BODY_STATE_TRANSFORM, xf)
+	(b as Node3D).global_transform = xf
+
+
+# Picking somebody else's straw out of the yard takes it over: they drop
+# theirs, we keep ours, and the straw stays one straw.
+func _watch_hand() -> void:
+	if _ghost.is_empty():
+		return
+	var pl: Variant = world.get("player")
+	if pl == null or not is_instance_valid(pl):
+		return
+	var hand: Variant = pl.get("hand")
+	if hand == null or not is_instance_valid(hand) or not hand.has_method("held_bodies"):
+		return
+	for b in hand.held_bodies():
+		if b == null or not is_instance_valid(b) or not b.has_meta("mp_ghost"):
+			continue
+		var sid := int(b.get_meta("mp_gid", 0))
+		if sid == 0 or not _ghost.has(sid):
+			continue
+		_ghost.erase(sid)
+		_owner.erase(sid)
+		b.remove_meta("mp_ghost")
+		b.remove_meta("mp_gid")
+		# a real straw again: it can fall, be carried and be put in a bucket
+		b.collision_mask = LiveStrandManager.STRAND_MASK
+		b.continuous_cd = true
+		mp._rx_straw_claim.rpc(sid)
+
+
+func on_claim(sender: int, sid: int) -> void:
+	if sender == _me():
+		return
+	var mine: Variant = _mine.get(sid)
+	if mine != null:
+		_mine.erase(sid)
+		_sent.erase(sid)
+		if is_instance_valid(mine) and live != null:
+			if mine.has_meta("mp_sid"):
+				mine.remove_meta("mp_sid")
+			live.consume(mine)
+		return
+	_drop_ghost(sid)

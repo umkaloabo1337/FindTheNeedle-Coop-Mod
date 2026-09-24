@@ -1,4 +1,4 @@
-FIND THE NEEDLE CO-OP MOD  v0.11.0
+FIND THE NEEDLE CO-OP MOD  v0.12.0
 ==================================
 
 Unofficial mod. Every player needs the game (the free Steam demo) and this

@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.12.0
+
+* Machines no longer come out crooked on the other screen. Each moving part
+  was named by its place in the machine's list of child nodes, and that list
+  is not the same on both sides: the game adds and drops nodes of its own as
+  it runs (alert markers, dust, range rings). One extra node and every part
+  was handed the pose of another. Parts are named by where they hang now.
+* A part's orientation is sent whole instead of being rebuilt from a rotation
+  and a scale, which straightened out the parts that are skewed, and the
+  easing works axis by axis for the same reason.
+* Straw somebody else dropped can be picked up. Their copies had no collision
+  at all, so your hand went through them. They are solid now, and taking one
+  hands it over: theirs goes, yours becomes real, and one straw stays one
+  straw.
+
 ## v0.11.0
 
 * You can see what somebody is holding. Straw picked up by hand shows in the

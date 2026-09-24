@@ -56,7 +56,9 @@ var mp: Node
 var world: Node
 var builds: Node
 
-var _parts := {}    # key -> Array[Node3D], the order both sides walk
+var _parts := {}    # key -> Array[Node3D] in walk order
+var _ids := {}      # key -> PackedInt32Array, each part named by its path
+var _slot := {}     # key -> {part id: index into _parts}
 var _sent := {}     # key -> Array[Transform3D] last broadcast
 var _flags := {}    # key -> PackedByteArray last broadcast
 var _vals := {}     # key -> Dictionary of fields last broadcast
@@ -77,11 +79,17 @@ func start(mp_node: Node, world_node: Node) -> void:
 
 func shutdown() -> void:
 	_parts.clear()
+	_ids.clear()
+	_slot.clear()
 	_sent.clear()
 	_flags.clear()
 	_vals.clear()
 	_goal.clear()
 	_nodes.clear()
+	# walk the models again: the game adds and drops nodes as it runs
+	_parts.clear()
+	_ids.clear()
+	_slot.clear()
 	_group.clear()
 
 
@@ -95,6 +103,10 @@ func _rescan() -> void:
 	var ws: Node = mp.world_sync
 	var groups: Array = ws.get_script().get_script_constant_map().get("CLIENT_FROZEN", [])
 	_nodes.clear()
+	# walk the models again: the game adds and drops nodes as it runs
+	_parts.clear()
+	_ids.clear()
+	_slot.clear()
 	_group.clear()
 	for group in groups + SETTINGS_ONLY:
 		var arr: Variant = builds.get(group)
@@ -108,6 +120,8 @@ func _rescan() -> void:
 	for key in _parts.keys():
 		if not _nodes.has(key):
 			_parts.erase(key)
+			_ids.erase(key)
+			_slot.erase(key)
 			_sent.erase(key)
 			_flags.erase(key)
 			_vals.erase(key)
@@ -125,12 +139,35 @@ func _parts_of(key: String) -> Array:
 	if _parts.has(key):
 		return _parts[key]
 	var out: Array = []
+	var ids := PackedInt32Array()
+	var slot := {}
 	var n: Variant = _nodes.get(key)
 	if n != null and is_instance_valid(n):
 		var root: Variant = n.get("_model")
-		_walk(root if root is Node3D and is_instance_valid(root) else n, out)
+		var base: Node = root if root is Node3D and is_instance_valid(root) else n
+		_walk(base, out)
+		# A part is named by where it hangs, not by its place in the list: the
+		# game adds and removes nodes of its own (alert markers, dust, range
+		# rings), and a machine with one more of those would otherwise hand
+		# every pose to the wrong part and come out crooked.
+		for i in out.size():
+			var id := String((base as Node).get_path_to(out[i])).hash()
+			ids.append(id)
+			slot[id] = i
 	_parts[key] = out
+	_ids[key] = ids
+	_slot[key] = slot
 	return out
+
+
+func _ids_of(key: String) -> PackedInt32Array:
+	_parts_of(key)
+	return _ids.get(key, PackedInt32Array())
+
+
+func _slot_of(key: String) -> Dictionary:
+	_parts_of(key)
+	return _slot.get(key, {})
 
 
 func _walk(n: Node, out: Array) -> void:
@@ -205,8 +242,10 @@ func _send_poses() -> void:
 		if last.size() != parts.size():
 			last = []
 			last.resize(parts.size())
+		var part_ids := _ids_of(key)
 		var flags := PackedByteArray()
 		flags.resize(parts.size())
+		var moved := PackedInt32Array()
 		var rows := PackedFloat32Array()
 		for i in parts.size():
 			var part: Variant = parts[i]
@@ -219,18 +258,26 @@ func _send_poses() -> void:
 			if was != null and _same(was, xf):
 				continue
 			last[i] = xf
-			var q := xf.basis.get_rotation_quaternion()
-			var s := xf.basis.get_scale()
-			rows.append_array(PackedFloat32Array([float(i),
+			moved.append(part_ids[i])
+			# the whole basis, not a rotation and a scale: some parts are
+			# skewed and rebuilding them from a quaternion left them crooked
+			rows.append_array(PackedFloat32Array([
 				xf.origin.x, xf.origin.y, xf.origin.z,
-				q.x, q.y, q.z, q.w, s.x, s.y, s.z]))
+				xf.basis.x.x, xf.basis.x.y, xf.basis.x.z,
+				xf.basis.y.x, xf.basis.y.y, xf.basis.y.z,
+				xf.basis.z.x, xf.basis.z.y, xf.basis.z.z]))
 		_sent[key] = last
 		var entry := {}
-		if rows.size() > 0:
+		if moved.size() > 0:
+			entry["i"] = moved
 			entry["t"] = rows
 		if _flags.get(key, PackedByteArray()) != flags:
 			_flags[key] = flags
-			entry["f"] = flags
+			var fl := PackedInt32Array()
+			for i in parts.size():
+				fl.append(part_ids[i])
+				fl.append(flags[i])
+			entry["f"] = fl
 		if not entry.is_empty():
 			batch[key] = entry
 	if batch.is_empty():
@@ -300,27 +347,34 @@ func on_poses(packed: PackedByteArray, raw_size: int) -> void:
 		var parts := _parts_of(key)
 		if parts.is_empty():
 			continue
+		var slot := _slot_of(key)
 		var entry: Dictionary = batch[key]
 		if entry.has("f"):
-			var flags: PackedByteArray = entry["f"]
-			for i in mini(flags.size(), parts.size()):
-				var part: Variant = parts[i]
-				if part == null or not is_instance_valid(part):
-					continue
-				_set_flags(part as Node3D, flags[i])
-		if not entry.has("t"):
+			var flags: PackedInt32Array = entry["f"]
+			var k := 0
+			while k + 1 < flags.size():
+				var at: int = int(slot.get(flags[k], -1))
+				if at >= 0 and at < parts.size():
+					var part: Variant = parts[at]
+					if part != null and is_instance_valid(part):
+						_set_flags(part as Node3D, flags[k + 1])
+				k += 2
+		if not entry.has("t") or not entry.has("i"):
 			continue
+		var moved: PackedInt32Array = entry["i"]
 		var rows: PackedFloat32Array = entry["t"]
 		var want: Dictionary = _goal.get(key, {})
-		var i2 := 0
-		while i2 + 10 < rows.size():
-			var idx := int(rows[i2])
-			if idx >= 0 and idx < parts.size():
-				want[idx] = Transform3D(
-					Basis(Quaternion(rows[i2 + 4], rows[i2 + 5], rows[i2 + 6], rows[i2 + 7]))
-						.scaled(Vector3(rows[i2 + 8], rows[i2 + 9], rows[i2 + 10])),
-					Vector3(rows[i2 + 1], rows[i2 + 2], rows[i2 + 3]))
-			i2 += 11
+		for j in moved.size():
+			var r := j * 12
+			if r + 11 >= rows.size():
+				break
+			if not slot.has(moved[j]):
+				continue
+			want[moved[j]] = Transform3D(Basis(
+					Vector3(rows[r + 3], rows[r + 4], rows[r + 5]),
+					Vector3(rows[r + 6], rows[r + 7], rows[r + 8]),
+					Vector3(rows[r + 9], rows[r + 10], rows[r + 11])),
+				Vector3(rows[r], rows[r + 1], rows[r + 2]))
 		_goal[key] = want
 
 
@@ -365,25 +419,34 @@ func _ease(delta: float) -> void:
 	var f := minf(1.0, delta * SMOOTH)
 	for key in _goal:
 		var parts := _parts_of(key)
+		var slot := _slot_of(key)
 		var want: Dictionary = _goal[key]
 		var done: Array = []
-		for idx in want:
-			if idx >= parts.size():
-				done.append(idx)
+		for part_id in want:
+			var idx: int = int(slot.get(part_id, -1))
+			if idx < 0 or idx >= parts.size():
+				done.append(part_id)
 				continue
 			var part: Variant = parts[idx]
 			if part == null or not is_instance_valid(part):
-				done.append(idx)
+				done.append(part_id)
 				continue
 			var node := part as Node3D
-			var target: Transform3D = want[idx]
-			var step := node.transform.interpolate_with(target, f)
+			var target: Transform3D = want[part_id]
+			# eased axis by axis: interpolate_with would pull a skewed part
+			# through a rotation it never had
+			var now := node.transform
+			var step := Transform3D(Basis(
+					now.basis.x.lerp(target.basis.x, f),
+					now.basis.y.lerp(target.basis.y, f),
+					now.basis.z.lerp(target.basis.z, f)),
+				now.origin.lerp(target.origin, f))
 			node.transform = step
 			if step.origin.distance_to(target.origin) < 0.0005:
 				node.transform = target
-				done.append(idx)
-		for idx in done:
-			want.erase(idx)
+				done.append(part_id)
+		for gone in done:
+			want.erase(gone)
 
 
 # A client just arrived: forget what we think it knows, so the next ticks

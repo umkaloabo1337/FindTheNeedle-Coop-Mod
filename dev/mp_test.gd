@@ -103,6 +103,9 @@ func _process(delta: float) -> void:
 		if wt > 26.0 and not _did.has("hands2") and role == "host":
 			_did["hands2"] = true
 			_act_hands()
+		if wt > 33.0 and not _did.has("grab_straw") and role == "join":
+			_did["grab_straw"] = true
+			_grab_straw()
 		if wt > 29.5 and not _did.has("hand_shot") and role == "join":
 			_did["hand_shot"] = true
 			_shoot_hands()
@@ -611,3 +614,57 @@ func _shoot_hands() -> void:
 		await _shot("hands")
 		print("[MPTEST] %s photographed %d holding %d straws" % [role, id, int(a.straws_held())])
 		return
+
+
+# try to pick up a straw the other player threw: it has to be solid on our
+# side and change hands cleanly
+func _grab_straw() -> void:
+	var ws: Node = mp.world_sync
+	var ss: Node = ws.strands_sync
+	var target: Node3D = null
+	var sid := 0
+	var best := INF
+	for id in ss._ghost:
+		var b: Variant = ss._ghost[id]
+		if b == null or not is_instance_valid(b):
+			continue
+		var far: float = (b as Node3D).global_position.distance_to(ws.player.global_position)
+		if far < best:
+			best = far
+			target = b
+			sid = id
+	if target == null:
+		print("[MPTEST] %s sees no straw of theirs" % role)
+		return
+	var p: Node3D = ws.player
+	# stand right beside it. Do not use the terrain seat: these straws are at
+	# the foot of the pile and it would put us on top of the heap instead.
+	var at: Vector3 = target.global_position
+	p.global_position = at + Vector3(0.5, 0.35, 0.0)
+	p.velocity = Vector3.ZERO
+	await get_tree().process_frame
+	var d: Vector3 = at - p.eye_position()
+	p.set_look(atan2(-d.x, -d.z), atan2(d.y, Vector2(d.x, d.z).length()))
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var hand: Variant = p.get("hand")
+	# the bare hand only carries one straw at a time: empty it first
+	if hand.has_method("drop_held") and int(hand.count()) > 0:
+		hand.drop_held()
+		await get_tree().create_timer(0.3).timeout
+	# what does the physics world actually think of that copy?
+	var space: RID = PhysicsServer3D.body_get_space(target.get_rid())
+	var q := PhysicsRayQueryParameters3D.create(p.eye_position(), at)
+	q.collision_mask = Cfg.L_STRAND
+	q.collide_with_areas = false
+	var raw: Dictionary = p.get_world_3d().direct_space_state.intersect_ray(q)
+	print("[MPTEST] straw check: in_space=%s layer=%d mask=%d frozen=%s raw_ray=%s dist=%.2f" % [
+		space.is_valid(), target.collision_layer, target.collision_mask, target.freeze,
+		not raw.is_empty(), p.eye_position().distance_to(at)])
+	var hit: Dictionary = hand.aim_hit()
+	var before: int = int(hand.count())
+	hand.primary()
+	await get_tree().create_timer(0.5).timeout
+	print("[MPTEST] %s grabbing straw %d: ray hit %s, hand %d -> %d, still a copy=%s" % [
+		role, sid, "something" if not hit.is_empty() else "nothing",
+		before, int(hand.count()), ss._ghost.has(sid)])
