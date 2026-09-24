@@ -17,7 +17,7 @@ installer and I removed it, so installing is now copying a folder and adding
 two lines to a text file by hand. What is left that could trip the scanner is
 two DLLs, so here is what they are and where they come from.
 
-Mod page: https://www.nexusmods.com/games/10302/mods/1
+Mod page: https://www.nexusmods.com/findtheneedle/mods/1
 Mod: Find The Needle Co-op Multiplayer
 Author: AleDev11
 File: FindTheNeedle_Multiplayer_v0.7.0.zip (1.5 MB)
