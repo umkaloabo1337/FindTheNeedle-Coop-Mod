@@ -1,76 +1,72 @@
-[size=5][b]Find The Needle — Multiplayer (co-op)[/b][/size]
+[size=5][b]Find The Needle co-op mod[/b][/size]
 
-Dig the same haystack with your friends. One yard, several players, everything
-shared: the pile, the buildings, the money and the needles.
+Adds co-op multiplayer to the demo. Several players dig the same haystack,
+share the money and see each other's buildings.
 
-Connection runs over [b]Steam's relay network[/b], the same one official co-op
-games use: [b]no port forwarding, no IP addresses, no VPN[/b]. You invite from
-the Steam friends list and your friend lands in your yard.
+Connections go through Steam's relay network, so there is no port forwarding
+and no IP addresses to exchange. The host invites from the Steam friends list.
 
-[size=4][b]Features[/b][/size]
+[size=4][b]What is synced[/b][/size]
 [list]
-[*][b]Shared haystack[/b] — everyone digs the same pile and sees it change live.
-[*][b]Shared building[/b] — structures, conveyors and platforms placed or
-demolished by anyone show up for everyone.
-[*][b]Shared economy[/b] — money, debt, hay sold, needles found and the whole
-collection.
-[*][b]Shared tech tree[/b] — an upgrade bought by one player unlocks for all.
-[*][b]Shared needles[/b] — an uncovered needle is visible to everybody and can
-only be handed in once.
-[*][b]See each other[/b] — player figures with Steam names and the tool in hand.
-[*][b]Steam invites[/b] — overlay invites, friends-list joins, or accepting an
-invite while the game is closed.
-[*][b]Chat[/b] in game, and a resync key if anything ever drifts.
-[*][b]Streamer safe[/b] — the panel never shows IPs, Steam IDs or lobby codes.
+[*]The haystack. Everyone digs the same pile.
+[*]Buildings, placed and demolished.
+[*]Money, debt, hay sold, needles found, the collection.
+[*]The tech tree.
+[*]Uncovered needles. They show up for everyone and can only be handed in once.
+[*]New hay loads, which resync every client.
+[*]Player positions, names and the tool in hand.
 [/list]
+There is in-game chat (Y) and a resync key (F8). The panel does not show IP
+addresses, Steam IDs or lobby codes, so it is safe to have on screen while
+streaming.
 
 [size=4][b]Requirements[/b][/size]
 [list]
-[*]Find The Needle Demo (free on Steam), build V26 or newer
+[*]Find The Needle demo (free on Steam), build V26 or newer
 [*]Windows 64-bit
-[*]Every player needs the same mod version
-[*]Launch the game from Steam (invites need the overlay)
+[*]The same mod version on every machine
+[*]The game has to be launched from Steam, or the invites will not work
 [/list]
 
-[size=4][b]Installation[/b][/size]
+[size=4][b]Install[/b][/size]
 [list=1]
 [*]Unzip the download.
-[*]Copy the [b]mods[/b] folder next to [b]FindTheNeedle.exe[/b]
-(Steam → right-click the game → Manage → Browse local files).
+[*]Copy the [b]mods[/b] folder next to [b]FindTheNeedle.exe[/b]. In Steam:
+right-click the game, Manage, Browse local files.
 [*]Run [b]mods\multiplayer\INSTALL.bat[/b].
-[*]Start the game from Steam — the main menu now has MULTIPLAYER.
+[*]Launch from Steam. There is a MULTIPLAYER entry in the main menu.
 [/list]
-To remove it, run [b]UNINSTALL.bat[/b]: it puts the game back exactly as it was.
+UNINSTALL.bat reverts it. The installer only adds one line to the game's
+override.cfg.
 
-[b]After every game update, run INSTALL.bat again[/b] — Steam updates overwrite
-the file that registers the mod.
+Game updates replace that file, so run INSTALL.bat again after each one.
 
-[size=4][b]How to play[/b][/size]
-[b]Host:[/b] MULTIPLAYER → CREATE GAME → INVITE FRIENDS, then start or load your
-save as usual.
-[b]Friends:[/b] accept the Steam invite. Nothing to type.
-
-[b]Keys:[/b] F2 panel · Y chat · F8 resync
+[size=4][b]Playing[/b][/size]
+Host: MULTIPLAYER, CREATE GAME, INVITE FRIENDS, then start or load a save as
+usual. Everyone else joins by accepting the Steam invite.
 
 [size=4][b]Known limitations[/b][/size]
 [list]
-[*]Machines that feed themselves from the pile (piston rake, robotic arm,
-drone, scanner) run only on the host; on clients they stand still. This is
-deliberate — it stops hay and money being counted twice.
-[*]Loose props (buckets, sacks, bales) are per-player.
-[*]Machine settings (filters, switches) are not shared yet.
-[*]Bought tools are per-player; money is shared.
-[*]Only the host saves. Clients never touch their own saves.
-[*]The online leaderboard is disabled while the mod is active.
+[*]Machines that take hay from the pile on their own (piston rake, robotic arm,
+drone, scanner) only run on the host. On clients they stand still. Running them
+everywhere counted hay and money twice.
+[*]Loose props (buckets, sacks, bales) are local to each player.
+[*]Machine settings such as filters and switches are not synced.
+[*]Bought tools are per player. Money is shared.
+[*]Only the host saves. Clients never write to their own save files.
+[*]The online leaderboard is disabled while the mod is loaded.
 [/list]
+
+[size=4][b]Source[/b][/size]
+https://github.com/AleDev11/FindTheNeedle-Coop-Mod
 
 [size=4][b]Credits[/b][/size]
 [list]
-[*]Mod by [b]AleDev11[/b]
+[*]Mod by AleDev11
 [*]Find The Needle by FindTheNeedleDev
-[*]GodotSteam GDExtension (MIT) — godotsteam.com
-[*]Steamworks SDK © Valve Corporation
+[*]GodotSteam (MIT), godotsteam.com
+[*]Steamworks SDK, Valve
 [/list]
 
-Unofficial mod, not affiliated with or endorsed by the game's developer. It
-contains no game files — only its own scripts, which the game loads at startup.
+Unofficial mod, not affiliated with the game's developer. It contains no game
+files, only its own scripts.

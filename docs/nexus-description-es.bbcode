@@ -1,77 +1,74 @@
-[size=5][b]Find The Needle — Mod multijugador (cooperativo)[/b][/size]
+[size=5][b]Mod cooperativo para Find The Needle[/b][/size]
 
-Cavad el mismo pajar entre amigos. Un patio, varios jugadores y todo
-compartido: el montón, las construcciones, el dinero y las agujas.
+Añade multijugador cooperativo a la demo. Varios jugadores cavan el mismo
+pajar, comparten el dinero y ven las construcciones de los demás.
 
-La conexión va por la [b]red de Steam[/b], la misma que usan los juegos con
-cooperativo oficial: [b]sin abrir puertos, sin IPs y sin VPN[/b]. Invitas desde
-la lista de amigos de Steam y tu amigo aparece en tu patio.
+La conexión va por la red de Steam, así que no hay que abrir puertos ni
+intercambiar IPs. El anfitrión invita desde la lista de amigos de Steam.
 
-[size=4][b]Qué incluye[/b][/size]
+[size=4][b]Qué se sincroniza[/b][/size]
 [list]
-[*][b]Pajar compartido[/b]: todos cavan el mismo montón y lo ven cambiar al
-momento.
-[*][b]Construcción compartida[/b]: lo que uno coloca o derriba lo ven todos.
-[*][b]Economía compartida[/b]: dinero, deuda, paja vendida, agujas y colección.
-[*][b]Árbol de mejoras compartido[/b]: lo que compra uno lo tienen todos.
-[*][b]Agujas compartidas[/b]: una aguja destapada la ve todo el mundo y solo se
-entrega una vez.
-[*][b]Os veis[/b]: figuras con el nombre de Steam y la herramienta en la mano.
-[*][b]Invitaciones de Steam[/b]: desde el overlay, desde la lista de amigos o
-aceptando la invitación con el juego cerrado.
-[*][b]Chat[/b] dentro de la partida y una tecla para resincronizar.
-[*][b]Seguro para directos[/b]: el panel no muestra IPs, identificadores de
-Steam ni códigos de sala.
+[*]El pajar. Todos cavan el mismo montón.
+[*]Las construcciones, al colocarlas y al derribarlas.
+[*]Dinero, deuda, paja vendida, agujas encontradas y colección.
+[*]El árbol de mejoras.
+[*]Las agujas destapadas. Las ve todo el mundo y solo se entregan una vez.
+[*]Las cargas nuevas de paja, que resincronizan a todos los clientes.
+[*]Posición, nombre y herramienta de cada jugador.
 [/list]
+Hay chat dentro de la partida (Y) y una tecla para resincronizar (F8). El panel
+no muestra IPs, identificadores de Steam ni códigos de sala, así que se puede
+tener en pantalla en directo.
 
 [size=4][b]Requisitos[/b][/size]
 [list]
-[*]Find The Needle Demo (gratis en Steam), versión V26 o posterior
+[*]Demo de Find The Needle (gratis en Steam), versión V26 o posterior
 [*]Windows 64 bits
-[*]Todos los jugadores con la misma versión del mod
-[*]Abrir el juego desde Steam (las invitaciones necesitan el overlay)
+[*]La misma versión del mod en todas las máquinas
+[*]Hay que abrir el juego desde Steam o las invitaciones no funcionan
 [/list]
 
 [size=4][b]Instalación[/b][/size]
 [list=1]
 [*]Descomprime la descarga.
-[*]Copia la carpeta [b]mods[/b] junto a [b]FindTheNeedle.exe[/b]
-(Steam → clic derecho en el juego → Administrar → Ver archivos locales).
+[*]Copia la carpeta [b]mods[/b] junto a [b]FindTheNeedle.exe[/b]. En Steam:
+clic derecho en el juego, Administrar, Ver archivos locales.
 [*]Ejecuta [b]mods\multiplayer\INSTALAR.bat[/b].
-[*]Abre el juego desde Steam: en el menú aparece MULTIPLAYER.
+[*]Abre el juego desde Steam. En el menú principal hay una entrada MULTIPLAYER.
 [/list]
-Para quitarlo, ejecuta [b]DESINSTALAR.bat[/b]: deja el juego como estaba.
+DESINSTALAR.bat lo deshace. El instalador solo añade una línea al override.cfg
+del juego.
 
-[b]Tras cada actualización del juego, vuelve a ejecutar INSTALAR.bat[/b]: las
-actualizaciones de Steam sobrescriben el archivo donde se registra el mod.
+Las actualizaciones del juego reemplazan ese archivo, así que hay que ejecutar
+INSTALAR.bat otra vez después de cada una.
 
-[size=4][b]Cómo jugar[/b][/size]
-[b]Anfitrión:[/b] MULTIPLAYER → CREAR PARTIDA → INVITAR AMIGOS, y luego empieza
-o carga tu partida como siempre.
-[b]Amigos:[/b] aceptad la invitación de Steam. No hay que escribir nada.
-
-[b]Teclas:[/b] F2 panel · Y chat · F8 resincronizar
+[size=4][b]Jugar[/b][/size]
+Anfitrión: MULTIPLAYER, CREAR PARTIDA, INVITAR AMIGOS, y luego empieza o carga
+una partida como siempre. Los demás entran aceptando la invitación de Steam.
 
 [size=4][b]Limitaciones conocidas[/b][/size]
 [list]
 [*]Las máquinas que sacan paja del pajar por su cuenta (rastrillo de pistón,
-brazo robótico, dron, escáner) funcionan solo en el anfitrión; en los clientes
-se ven quietas. Es a propósito: evita contar paja y dinero dos veces.
+brazo robótico, dron, escáner) solo funcionan en el anfitrión. En los clientes
+se ven quietas. Ejecutarlas en todas partes contaba la paja y el dinero dos
+veces.
 [*]Los objetos sueltos (cubos, sacos, fardos) son de cada jugador.
-[*]Los ajustes de las máquinas (filtros, interruptores) aún no se comparten.
-[*]Las herramientas compradas son de cada jugador; el dinero es común.
-[*]Solo guarda el anfitrión. Los clientes no tocan sus partidas.
-[*]La tabla de clasificación online se desactiva con el mod puesto.
+[*]Los ajustes de las máquinas, como filtros e interruptores, no se sincronizan.
+[*]Las herramientas compradas son de cada jugador. El dinero es común.
+[*]Solo guarda el anfitrión. Los clientes no escriben en sus partidas.
+[*]La tabla de clasificación online se desactiva con el mod cargado.
 [/list]
+
+[size=4][b]Código fuente[/b][/size]
+https://github.com/AleDev11/FindTheNeedle-Coop-Mod
 
 [size=4][b]Créditos[/b][/size]
 [list]
-[*]Mod de [b]AleDev11[/b]
+[*]Mod de AleDev11
 [*]Find The Needle, de FindTheNeedleDev
-[*]GodotSteam GDExtension (MIT) — godotsteam.com
-[*]Steamworks SDK © Valve Corporation
+[*]GodotSteam (MIT), godotsteam.com
+[*]SDK de Steamworks, de Valve
 [/list]
 
-Mod no oficial, sin relación con el desarrollador del juego ni respaldo suyo.
-No incluye archivos del juego: solo sus propios scripts, que el juego carga al
-arrancar.
+Mod no oficial, sin relación con el desarrollador del juego. No incluye
+archivos del juego, solo sus propios scripts.
