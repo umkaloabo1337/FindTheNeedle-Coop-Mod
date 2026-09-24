@@ -21,16 +21,26 @@ file: [README.es.md](README.es.md).
 
 ## Install
 
-1. Download the zip from [Releases](../../releases).
+No installer to run: copy a folder, add two lines to a text file.
+
+1. Download the zip from [Releases](../../releases) and unzip it.
 2. Copy the `mods` folder next to `FindTheNeedle.exe`. In Steam: right-click
    the game, Manage, Browse local files.
-3. Run `mods\multiplayer\INSTALL.bat`.
+3. Open `override.cfg`, in that same folder, with any text editor and add:
+
+   ```ini
+   [autoload]
+   MPMod="*mods/multiplayer/mp.gd"
+   ```
+
+   If the file already has an `[autoload]` section, only the second line is
+   needed.
 4. Launch from Steam. There is a MULTIPLAYER entry in the main menu.
 
-`UNINSTALL.bat` reverts it. The installer only adds one line to the game's
-`override.cfg`; nothing else is written outside the `mods` folder.
+To uninstall, delete that line and the `mods` folder. Nothing is ever written
+outside it.
 
-Game updates replace `override.cfg`, so run `INSTALL.bat` again after each one.
+Game updates replace `override.cfg`, so add the lines again after each one.
 
 ## Playing
 
@@ -77,8 +87,8 @@ translations, so they read the same as in the rest of the UI.
 
 ## Troubleshooting
 
-No MULTIPLAYER entry: the game updated and replaced `override.cfg`. Run
-`INSTALL.bat` again.
+No MULTIPLAYER entry: the game updated and replaced `override.cfg`. Add the
+two lines again.
 
 "Steam not available": the game was launched from the .exe instead of Steam.
 

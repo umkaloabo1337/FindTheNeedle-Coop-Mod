@@ -1,75 +1,72 @@
-FIND THE NEEDLE - MOD MULTIJUGADOR (cooperativo)  v0.5.0
-=========================================================
+MOD COOPERATIVO PARA FIND THE NEEDLE  v0.6.0
+=============================================
 
-Mod NO oficial y de uso privado. Todos los jugadores necesitan el juego
-(la demo, gratis en Steam) y ESTE MISMO mod en la MISMA version.
+Mod no oficial. Todos los jugadores necesitan el juego (la demo, gratis en
+Steam) y esta misma version del mod. English: README.txt
 
-No hay que abrir puertos ni instalar nada raro: la conexion va por la red
-de Steam, igual que en los juegos con cooperativo online.
+La conexion va por la red de Steam: sin abrir puertos y sin IPs. El anfitrion
+invita desde la lista de amigos de Steam.
 
-INSTALAR
---------
-1. Copia la carpeta "mods" dentro de la carpeta del juego, junto a
-   FindTheNeedle.exe  (Steam > clic derecho en el juego > Administrar >
-   Ver archivos locales).
-2. Ejecuta  mods\multiplayer\INSTALAR.bat
+INSTALACION (dos pasos, no hay instalador que ejecutar)
+--------------------------------------------------------
+1. Copia la carpeta "mods" junto a FindTheNeedle.exe.
+   En Steam: clic derecho en el juego, Administrar, Ver archivos locales.
+
+2. Abre "override.cfg" (en la misma carpeta que FindTheNeedle.exe) con el
+   Bloc de notas, anade estas dos lineas al final y guarda:
+
+[autoload]
+MPMod="*mods/multiplayer/mp.gd"
+
+   Si el archivo ya tiene una linea [autoload], anade solo la linea MPMod
+   debajo.
+
 3. Abre el juego DESDE STEAM. En el menu principal aparece MULTIPLAYER.
 
-Para quitarlo: DESINSTALAR.bat (deja el juego como estaba).
+Para desinstalar: borra la linea MPMod de override.cfg y borra la carpeta
+mods. No se ha tocado nada mas.
 
-IMPORTANTE: si Steam actualiza el juego, vuelve a ejecutar INSTALAR.bat
-(la actualizacion borra el archivo donde se registra el mod).
+Las actualizaciones del juego reemplazan override.cfg, asi que hay que volver
+a anadir las dos lineas despues de cada una.
 
 JUGAR
 -----
-Anfitrion (el que pone la partida):
-  1. MULTIPLAYER > CREAR PARTIDA.
-  2. INVITAR AMIGOS (se abre la lista de amigos de Steam) o que te
-     entren desde tu perfil, boton "Unirse a la partida".
-  3. Empieza o carga tu partida como siempre: tus amigos apareceran en ella.
+Anfitrion: MULTIPLAYER, CREAR PARTIDA, INVITAR AMIGOS, y luego empieza o carga
+una partida como siempre. Los demas aceptan la invitacion de Steam. Si tienen
+el juego cerrado, Steam lo abre y los mete dentro.
 
-Amigos:
-  Acepta la invitacion de Steam. Entras solo, sin escribir ninguna IP.
-  Si el juego estaba cerrado, Steam lo abre y te mete directamente.
-
-Tambien queda, en CONEXION POR IP (AVANZADO), el modo antiguo por IP
-directa, por si algun dia falla Steam.
-
-TECLAS
-------
-  F2  panel multijugador (tambien dentro de la partida)
-  Y   chat
-  F8  resincronizar el mundo si algo se ve distinto
+Teclas:  F2 panel   Y chat   F8 resincronizar el mundo
 
 IDIOMAS
 -------
-  El mod sigue el idioma que tengas puesto en el juego. Estan incluidos
-  ingles, espanol, aleman, frances, italiano, checo, polaco, ruso, turco,
-  japones, coreano y chino.
+El mod sigue el idioma que tengas puesto en el juego. Estan incluidos ingles,
+espanol, aleman, frances, italiano, checo, polaco, ruso, turco, japones,
+coreano y chino.
 
 QUE SE COMPARTE
 ---------------
-  - Todos en el mismo pajar: lo que cava uno lo ven todos.
-  - Construcciones: colocar y derribar edificios, cintas, plataformas...
+  - El pajar. Todos cavan el mismo monton.
+  - Las construcciones, al colocarlas y al derribarlas.
   - Dinero, deuda, paja vendida, agujas encontradas y coleccion.
-  - Arbol de mejoras (tech).
-  - Agujas destapadas: las ve todo el mundo y solo cuentan una vez.
-  - Nuevas cargas de paja (se resincroniza a todos).
-  - Ves a los demas con su nombre de Steam y la herramienta en la mano.
+  - El arbol de mejoras.
+  - Las agujas destapadas. Las ve todo el mundo y cuentan una vez.
+  - Las cargas nuevas de paja, que resincronizan a todos.
+  - Posicion, nombre y herramienta de cada jugador.
 
-LIMITACIONES DE ESTA VERSION
-----------------------------
-  - Las maquinas que sacan paja del pajar por su cuenta (rastrillo de
-    piston, brazo robotico, dron, escaner) solo funcionan en el
-    ordenador del anfitrion; en los clientes se ven quietas.
+LIMITACIONES CONOCIDAS
+----------------------
+  - Las maquinas que sacan paja del pajar por su cuenta (rastrillo de piston,
+    brazo robotico, dron, escaner) solo funcionan en el anfitrion; en los
+    clientes se ven quietas.
   - Los objetos sueltos (cubos, sacos, fardos) son de cada jugador.
-  - Los ajustes de las maquinas (filtros, interruptores) no se comparten.
-  - Las herramientas compradas son de cada jugador (el dinero es comun).
-  - Solo el anfitrion guarda la partida. Los clientes no tocan sus
-    partidas guardadas.
-  - La tabla de clasificacion online se desactiva mientras juegas con el mod.
+  - Los ajustes de las maquinas no se sincronizan.
+  - Las herramientas compradas son de cada jugador. El dinero es comun.
+  - Solo guarda el anfitrion. Los clientes no escriben en sus partidas.
+  - La tabla de clasificacion online se desactiva con el mod cargado.
 
-CREDITOS DE TERCEROS
---------------------
-  GodotSteam (GDExtension) - MIT - https://godotsteam.com
-  Steamworks SDK (steam_api64.dll) - (c) Valve Corporation
+CREDITOS
+--------
+  Modelo del granjero: Ultimate Modular Men Pack, de Quaternius, CC0.
+  GodotSteam (GDExtension), MIT, https://godotsteam.com
+  SDK de Steamworks, (c) Valve Corporation.
+  Codigo: https://github.com/AleDev11/FindTheNeedle-Coop-Mod

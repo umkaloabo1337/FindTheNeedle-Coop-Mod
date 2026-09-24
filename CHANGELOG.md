@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.0
+
+* No scripts in the download. The autoload line now uses a path relative to
+  the game folder, so it is the same on every machine: copy the mods folder
+  and add two lines to override.cfg by hand. The .bat installers are gone.
+* Tested on game build V30.
+
 ## v0.5.0
 
 * Remote players are an animated farmer (Quaternius, CC0) instead of a figure

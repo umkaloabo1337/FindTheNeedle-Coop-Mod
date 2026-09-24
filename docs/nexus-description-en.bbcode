@@ -33,13 +33,17 @@ streaming.
 [*]Unzip the download.
 [*]Copy the [b]mods[/b] folder next to [b]FindTheNeedle.exe[/b]. In Steam:
 right-click the game, Manage, Browse local files.
-[*]Run [b]mods\multiplayer\INSTALL.bat[/b].
+[*]Open [b]override.cfg[/b], in that same folder, with any text editor and add
+these two lines at the end:
+[code][autoload]
+MPMod="*mods/multiplayer/mp.gd"[/code]
+If the file already has an [autoload] section, only the second line is needed.
 [*]Launch from Steam. There is a MULTIPLAYER entry in the main menu.
 [/list]
-UNINSTALL.bat reverts it. The installer only adds one line to the game's
-override.cfg.
+There is no installer to run and the download contains no scripts. To
+uninstall, delete that line and the mods folder.
 
-Game updates replace that file, so run INSTALL.bat again after each one.
+Game updates replace override.cfg, so add the lines again after each one.
 
 [size=4][b]Playing[/b][/size]
 Host: MULTIPLAYER, CREATE GAME, INVITE FRIENDS, then start or load a save as

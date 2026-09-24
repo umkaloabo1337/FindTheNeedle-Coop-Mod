@@ -1,72 +1,70 @@
-FIND THE NEEDLE - MULTIPLAYER (co-op) MOD  v0.5.0
-==================================================
+FIND THE NEEDLE CO-OP MOD  v0.6.0
+==================================
 
-Unofficial mod for private use. Every player needs the game (the free Steam
-demo) and THIS SAME mod in the SAME version.
+Unofficial mod. Every player needs the game (the free Steam demo) and this
+same mod version. Spanish version of these notes: LEEME.txt
 
-No port forwarding and nothing else to install: the connection runs over
-Steam's relay network, like any official co-op game.
-(Spanish version of these notes: LEEME.txt)
+The connection runs over Steam's relay network: no port forwarding, no IP
+addresses. The host invites from the Steam friends list.
 
-INSTALL
--------
-1. Copy the "mods" folder next to FindTheNeedle.exe
-   (Steam > right-click the game > Manage > Browse local files).
-2. Run  mods\multiplayer\INSTALL.bat
+INSTALL (two steps, no installer to run)
+----------------------------------------
+1. Copy the "mods" folder next to FindTheNeedle.exe.
+   In Steam: right-click the game, Manage, Browse local files.
+
+2. Open "override.cfg" (same folder as FindTheNeedle.exe) with Notepad and
+   add these two lines at the end, then save:
+
+[autoload]
+MPMod="*mods/multiplayer/mp.gd"
+
+   If the file already has an [autoload] line, just add the MPMod line
+   under it.
+
 3. Start the game FROM STEAM. The main menu now has MULTIPLAYER.
 
-To remove it: UNINSTALL.bat (puts the game back as it was).
+To uninstall: delete the MPMod line from override.cfg, and delete the mods
+folder. Nothing else was ever changed.
 
-IMPORTANT: after every game update, run INSTALL.bat again. The update
-overwrites the file that registers the mod.
+Game updates replace override.cfg, so add the two lines again after each one.
 
 PLAYING
 -------
-Host (the one whose save is played):
-  1. MULTIPLAYER > CREATE GAME
-  2. INVITE FRIENDS (opens the Steam friends list), or let them join from
-     your profile with "Join game".
-  3. Start or load your save as usual: your friends appear in it.
+Host: MULTIPLAYER, CREATE GAME, INVITE FRIENDS, then start or load a save as
+usual. The others accept the Steam invite. If their game is closed, Steam
+opens it and takes them in.
 
-Friends:
-  Accept the Steam invite. Nothing to type. If the game was closed, Steam
-  opens it and takes you straight in.
-
-There is also a direct-IP mode under CONEXION POR IP (AVANZADO) as a fallback.
-
-KEYS
-----
-  F2  multiplayer panel (also in game)
-  Y   chat
-  F8  resync the world if something looks different
+Keys:  F2 panel   Y chat   F8 resync the world
 
 LANGUAGES
 ---------
-  The mod follows the language you set in the game. English, Spanish,
-  German, French, Italian, Czech, Polish, Russian, Turkish, Japanese,
-  Korean and Chinese are included.
+The mod follows the language you set in the game. English, Spanish, German,
+French, Italian, Czech, Polish, Russian, Turkish, Japanese, Korean and
+Chinese are included.
 
 WHAT IS SHARED
 --------------
-  - The haystack: what one digs, everyone sees.
-  - Buildings: placing and demolishing structures, conveyors, platforms.
-  - Money, debt, hay sold, needles found and the collection.
+  - The haystack. Everyone digs the same pile.
+  - Buildings, placed and demolished.
+  - Money, debt, hay sold, needles found, the collection.
   - The tech tree.
-  - Uncovered needles: visible to all, handed in only once.
-  - New hay loads (everyone is resynced).
-  - You see each other with Steam names and the tool in hand.
+  - Uncovered needles. Everyone sees them, and they count once.
+  - New hay loads, which resync every client.
+  - Player positions, names and the tool in hand.
 
-LIMITATIONS OF THIS VERSION
----------------------------
-  - Machines that feed themselves from the pile (piston rake, robotic arm,
-    drone, scanner) run only on the host; on clients they stand still.
-  - Loose props (buckets, sacks, bales) are per-player.
-  - Machine settings (filters, switches) are not shared.
-  - Bought tools are per-player (money is shared).
-  - Only the host saves. Clients never touch their own save files.
-  - The online leaderboard is disabled while the mod is active.
+KNOWN LIMITATIONS
+-----------------
+  - Machines that take hay from the pile on their own (piston rake, robotic
+    arm, drone, scanner) only run on the host; on clients they stand still.
+  - Loose props (buckets, sacks, bales) are local to each player.
+  - Machine settings are not synced.
+  - Bought tools are per player. Money is shared.
+  - Only the host saves. Clients never write to their own saves.
+  - The online leaderboard is disabled while the mod is loaded.
 
-THIRD-PARTY CREDITS
--------------------
-  GodotSteam (GDExtension) - MIT - https://godotsteam.com
-  Steamworks SDK (steam_api64.dll) - (c) Valve Corporation
+CREDITS
+-------
+  Farmer model: Ultimate Modular Men Pack by Quaternius, CC0.
+  GodotSteam (GDExtension), MIT, https://godotsteam.com
+  Steamworks SDK, (c) Valve Corporation.
+  Source: https://github.com/AleDev11/FindTheNeedle-Coop-Mod

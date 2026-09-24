@@ -21,17 +21,28 @@ archivos del juego, solo sus propios scripts y un modelo de jugador libre
 
 ## Instalación
 
-1. Descarga el zip de [Releases](../../releases).
+No hay instalador que ejecutar: se copia una carpeta y se añaden dos líneas a
+un archivo de texto.
+
+1. Descarga el zip de [Releases](../../releases) y descomprímelo.
 2. Copia la carpeta `mods` junto a `FindTheNeedle.exe`. En Steam: clic derecho
    en el juego, Administrar, Ver archivos locales.
-3. Ejecuta `mods\multiplayer\INSTALAR.bat`.
+3. Abre `override.cfg`, en esa misma carpeta, con cualquier editor de texto y
+   añade:
+
+   ```ini
+   [autoload]
+   MPMod="*mods/multiplayer/mp.gd"
+   ```
+
+   Si el archivo ya tiene una sección `[autoload]`, basta con la segunda línea.
 4. Abre el juego desde Steam. En el menú principal hay una entrada MULTIPLAYER.
 
-`DESINSTALAR.bat` lo deshace. El instalador solo añade una línea al
-`override.cfg` del juego; no escribe nada más fuera de la carpeta `mods`.
+Para desinstalar, borra esa línea y la carpeta `mods`. No se escribe nada más
+fuera de ella.
 
 Las actualizaciones del juego reemplazan `override.cfg`, así que hay que
-ejecutar `INSTALAR.bat` otra vez después de cada una.
+añadir las líneas otra vez después de cada una.
 
 ## Jugar
 
@@ -80,7 +91,7 @@ juego, así que se leen igual que en el resto de la interfaz.
 ## Problemas
 
 No aparece MULTIPLAYER: el juego se actualizó y reemplazó `override.cfg`.
-Ejecuta `INSTALAR.bat` otra vez.
+Añade las dos líneas otra vez.
 
 "Steam no disponible": el juego se abrió desde el .exe en vez de desde Steam.
 
