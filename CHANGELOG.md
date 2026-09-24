@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+* Held tools are placed by hand. Each of the six tools has its own position,
+  angle and length in the farmer's hand (`tool_poses.cfg`) instead of the
+  automatic guess, which held them like spears and the toy shovel upside down.
+  Five of them also have a crouch pose that the farmer eases into when
+  crouching. Tools without an entry keep the automatic fit.
+* `dev/tool_poser.gd` (not shipped) is the tool used to place them: an empty
+  stage with a move/rotate gizmo, started with `dev/tool_poser.bat`.
+
 ## v0.8.0
 
 * Loose items are shared. Buckets, sacks, bales and wads now exist once for

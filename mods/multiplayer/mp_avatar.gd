@@ -19,6 +19,8 @@ const TOOL_LENGTH := 1.2
 # tool models come in all sorts of units, so each gets a real length (m)
 const TOOL_LENGTHS := {1: 1.1, 2: 1.35, 3: 1.3, 4: 0.65, 5: 0.55, 6: 1.0}
 const EYE := 1.66
+# hand-placed tool poses, see _load_poses. made with dev/tool_poser.gd
+const POSE_FILE := "tool_poses.cfg"
 
 # farmer from Quaternius' Ultimate Modular Men Pack (CC0), see models/CREDITS.txt
 const MODEL_FILE := "models/farmer.glb"
@@ -53,10 +55,13 @@ var _body: Node3D
 var _head: Node3D
 var _hand: Node3D
 var _tool_node: Node3D
+var _posed := {}  # holder, mount, box, longest, pose while a saved pose is in use
 var _label: Label3D
 var _name := ""
 var _color := Color.WHITE
 static var _model_cache := {}
+static var _poses := {}
+static var _poses_tried := false
 
 # farmer only
 var _skel: Skeleton3D
@@ -266,6 +271,8 @@ func _animate_farmer(delta: float) -> void:
 		var grip := _skel.global_transform * _skel.get_bone_global_pose(grip_bone)
 		_hand.global_transform = Transform3D(
 			Basis(right, _pitch * 0.8 - 0.35) * global_basis.orthonormalized(), grip.origin)
+	if not _posed.is_empty() and _posed.pose.has("crouch") and is_instance_valid(_posed.holder):
+		_pose_tool(_posed.holder, _posed.mount, _posed.box, _posed.longest, _blend_pose(_posed.pose, _crouch_now))
 
 
 # rotate a bone around a world axis, on top of its current pose
@@ -474,6 +481,7 @@ func _follow_player(delta: float) -> void:
 
 
 func _set_tool_model(tool: int) -> void:
+	_posed = {}
 	if _tool_node != null:
 		_tool_node.queue_free()
 		_tool_node = null
@@ -498,6 +506,15 @@ func _set_tool_model(tool: int) -> void:
 	var length: float = TOOL_LENGTHS.get(tool, TOOL_LENGTH)
 	var box := _aabb(inst, Transform3D.IDENTITY)
 	var longest := maxf(box.size.x, maxf(box.size.y, box.size.z))
+	# a saved pose wins over the guess below (farmer only, the old figure
+	# holds things differently)
+	var pose := tool_pose(tool) if _skel != null else {}
+	if not pose.is_empty() and longest > 0.001:
+		_posed = {"holder": holder, "mount": mount, "box": box, "longest": longest, "pose": pose}
+		_pose_tool(holder, mount, box, longest, _blend_pose(pose, _crouch_now))
+		_hand.add_child(holder)
+		_tool_node = holder
+		return
 	if longest > 0.001:
 		var s := length / longest
 		mount.scale = Vector3.ONE * s
@@ -519,6 +536,93 @@ func _set_tool_model(tool: int) -> void:
 	holder.rotation.x += 0.25
 	_hand.add_child(holder)
 	_tool_node = holder
+
+
+# the model keeps its own axes, centred on the holder, and the holder sits at
+# pos / rot in _hand space: -Z where they face, +Y up, +X to their right,
+# tilted with the look pitch
+func _pose_tool(holder: Node3D, mount: Node3D, box: AABB, longest: float, pose: Dictionary) -> void:
+	var s: float = pose.length / longest
+	# built from scratch, this runs every frame while crouching
+	mount.transform = Transform3D(Basis.from_scale(Vector3.ONE * s), -box.get_center() * s)
+	if flip_tool:
+		# end over end, around an axis across the tool
+		var across := Vector3.RIGHT if box.size.x < maxf(box.size.y, box.size.z) else Vector3.UP
+		mount.transform = Transform3D(Basis(across, PI), Vector3.ZERO) * mount.transform
+	holder.position = pose.pos
+	holder.rotation_degrees = pose.rot
+
+
+# stand pose eased towards the crouch one, if the tool has one
+func _blend_pose(pose: Dictionary, c: float) -> Dictionary:
+	if not pose.has("crouch") or c <= 0.001:
+		return pose
+	var cr: Dictionary = pose.crouch
+	var qa := Basis.from_euler(pose.rot * PI / 180.0).get_rotation_quaternion()
+	var qb := Basis.from_euler(cr.rot * PI / 180.0).get_rotation_quaternion()
+	var rot := Basis(qa.slerp(qb, c)).get_euler() * 180.0 / PI
+	return {"pos": pose.pos.lerp(cr.pos, c), "rot": rot, "length": lerpf(pose.length, cr.length, c)}
+
+
+# tool_poses.cfg next to this script, one section per tool id:
+#   [tool_4]
+#   pos=Vector3(0, 0, -0.1)   # metres
+#   rot=Vector3(90, 0, 0)     # degrees, same as rotation_degrees
+#   length=0.65               # metres along the longest axis
+# a missing file or a bad entry just means the automatic fit
+static func _load_poses(dir: String) -> Dictionary:
+	if _poses_tried:
+		return _poses
+	_poses_tried = true
+	var path := dir.path_join(POSE_FILE)
+	if not FileAccess.file_exists(path):
+		return _poses
+	var cfg := ConfigFile.new()
+	var err := cfg.load(path)
+	if err != OK:
+		push_warning("[MPMod] could not read %s (error %d), tools use the automatic fit" % [path, err])
+		return _poses
+	for sec in cfg.get_sections():
+		var id := sec.trim_prefix("tool_")
+		if not sec.begins_with("tool_") or not id.is_valid_int():
+			continue
+		var pos: Variant = cfg.get_value(sec, "pos", Vector3.ZERO)
+		var rot: Variant = cfg.get_value(sec, "rot", Vector3.ZERO)
+		var length: Variant = cfg.get_value(sec, "length", 0.0)
+		var ok := pos is Vector3 and rot is Vector3 and (length is float or length is int)
+		if ok and pos.is_finite() and rot.is_finite() and length > 0.01 and length < 10.0:
+			var pose := {"pos": pos, "rot": rot, "length": float(length)}
+			# optional crouch pose, missing keys use the standing ones
+			if cfg.has_section_key(sec, "pos_crouch") or cfg.has_section_key(sec, "rot_crouch") 					or cfg.has_section_key(sec, "length_crouch"):
+				var pc: Variant = cfg.get_value(sec, "pos_crouch", pos)
+				var rc: Variant = cfg.get_value(sec, "rot_crouch", rot)
+				var lc: Variant = cfg.get_value(sec, "length_crouch", length)
+				if pc is Vector3 and rc is Vector3 and (lc is float or lc is int) and lc > 0.01 and lc < 10.0:
+					pose.crouch = {"pos": pc, "rot": rc, "length": float(lc)}
+				else:
+					push_warning("[MPMod] bad crouch pose [%s] in %s, using the standing one" % [sec, path])
+			_poses[int(id)] = pose
+		else:
+			push_warning("[MPMod] bad tool pose [%s] in %s, skipped" % [sec, path])
+	return _poses
+
+
+func tool_pose(tool: int) -> Dictionary:
+	return _load_poses(get_script().resource_path.get_base_dir()).get(tool, {})
+
+
+# live editing from dev/tool_poser.gd. an empty pose goes back to automatic
+func set_tool_pose(tool: int, pose: Dictionary) -> void:
+	var poses := _load_poses(get_script().resource_path.get_base_dir())
+	if pose.is_empty():
+		poses.erase(tool)
+	else:
+		poses[tool] = {"pos": pose.pos, "rot": pose.rot, "length": float(pose.length)}
+		if pose.has("crouch"):
+			var cr: Dictionary = pose.crouch
+			poses[tool].crouch = {"pos": cr.pos, "rot": cr.rot, "length": float(cr.length)}
+	if tool == _tool:
+		_set_tool_model(tool)
 
 
 func _aabb(n: Node, xf: Transform3D) -> AABB:
