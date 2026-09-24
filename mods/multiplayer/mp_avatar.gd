@@ -27,6 +27,7 @@ const MODEL_HEIGHT := 1.78  # same as the player's STAND_HEIGHT
 const WALK_CLIP_SPEED := 1.3
 const RUN_CLIP_SPEED := 3.05
 const RUN_FROM := 2.6
+const IDLE := "Idle_Neutral"  # plain "Idle" stands twisted and leaves the feet behind
 const CROUCH_DROP := 0.45
 const CROUCH_LEAN := 0.35
 const TINTS := {"LightBlue": 0.25, "Red": 0.0}  # overalls, hat band
@@ -174,12 +175,12 @@ func _build_farmer() -> bool:
 				dyed.albedo_color = _color.darkened(TINTS[mat.resource_name])
 				mi.set_surface_override_material(i, dyed)
 
-	for clip in ["Idle", "Walk", "Run"]:
+	for clip in [IDLE, "Walk", "Run"]:
 		if _anim.has_animation(clip):
 			_anim.get_animation(clip).loop_mode = Animation.LOOP_LINEAR
 	# advanced by hand so we can pose the head and arm on top
 	_anim.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
-	_play("Idle", 0.0)
+	_play(IDLE, 0.0)
 
 	# follows the right hand, tools hang off it
 	_hand = Node3D.new()
@@ -195,7 +196,7 @@ func _play(clip: String, blend: float) -> void:
 
 
 func _animate_farmer(delta: float) -> void:
-	var clip := "Idle"
+	var clip := IDLE
 	if _moving > RUN_FROM and _crouch < 0.5:
 		clip = "Run"
 	elif _moving > 0.3:

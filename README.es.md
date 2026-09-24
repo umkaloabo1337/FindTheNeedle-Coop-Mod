@@ -151,7 +151,7 @@ Los otros jugadores son un granjero animado,
 `mods/multiplayer/models/farmer.glb`, que se carga al vuelo con
 `GLTFDocument`. El peto y la banda del sombrero toman el color del jugador, la
 cabeza sigue hacia donde mira, las piernas se doblan al agacharse y la
-animación (Idle, Walk, Run) sigue su velocidad. Si falta el archivo o no carga,
+animación (Idle_Neutral, Walk, Run) sigue su velocidad. Si falta el archivo o no carga,
 aparece una figura antigua hecha de formas básicas. El `.glb` es el original
 del pack recortado a esas tres animaciones con `dev/models/slim_glb.py`, que lo
 deja de 1,3 MB en 500 KB.

@@ -147,7 +147,7 @@ Nothing is compiled. Edit a file, restart the game.
 Remote players are an animated farmer, `mods/multiplayer/models/farmer.glb`,
 loaded at runtime with `GLTFDocument`. The overalls and the hat band take the
 player's colour, the head follows where they look, the legs bend when they
-crouch, and the clip (Idle, Walk, Run) follows their speed. If the file is
+crouch, and the clip (Idle_Neutral, Walk, Run) follows their speed. If the file is
 missing or fails to load, an older figure made of primitives stands in. The
 `.glb` is the original pack trimmed to those three clips with
 `dev/models/slim_glb.py`, which takes it from 1.3 MB to 500 KB.
