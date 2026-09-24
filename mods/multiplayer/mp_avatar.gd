@@ -732,13 +732,20 @@ func _barrow_size() -> float:
 # stay in the hands
 func _place_barrow() -> void:
 	var p := _barrow_pose
+	var c := _crouch_now
+	var pos: Vector3 = p.pos
 	var b := Basis.from_euler(p.rot * PI / 180.0)
+	if p.has("pos_crouch") and c > 0.001:
+		# its own crouch pose, eased into like the tools
+		var qc := Basis.from_euler(p.rot_crouch * PI / 180.0).get_rotation_quaternion()
+		b = Basis(b.get_rotation_quaternion().slerp(qc, c))
+		pos = pos.lerp(p.pos_crouch, c)
 	var mid: Vector3 = (p.grip_l + p.grip_r) * 0.5
-	var xf := Transform3D(b, p.pos + b * (mid * (1.0 - _barrow_size())))
-	if _crouch_now > 0.01:
+	var xf := Transform3D(b, pos + b * (mid * (1.0 - _barrow_size())))
+	if c > 0.01 and not p.has("pos_crouch"):
 		# crouched, it tips back down onto its legs around the wheel
 		var axle := xf * (BARROW_AXLE * _barrow_size())
-		var tip := Basis(Vector3.RIGHT, -deg_to_rad(p.rot.x) * _crouch_now)
+		var tip := Basis(Vector3.RIGHT, -deg_to_rad(p.rot.x) * c)
 		xf = Transform3D(tip, axle - tip * axle) * xf
 	_barrow.global_transform = global_transform * xf
 
@@ -748,6 +755,7 @@ func _place_barrow() -> void:
 #   rot=Vector3(-18, 0, 0)       # degrees
 #   grip_l=Vector3(...)          # optional, handle grips in the barrow's own
 #   grip_r=Vector3(...)          # space. found on the model when missing
+#   pos_crouch / rot_crouch      # optional crouch pose, else it just tips back
 # filled=false gives just what was saved
 func barrow_pose(filled := true) -> Dictionary:
 	var p: Dictionary = _load_poses(get_script().resource_path.get_base_dir()).get(BARROW_SECTION, {}).duplicate()
@@ -775,14 +783,17 @@ func set_barrow_pose(pose: Dictionary) -> void:
 
 static func _read_barrow(cfg: ConfigFile) -> Dictionary:
 	var out := {}
-	for k in ["pos", "rot", "grip_l", "grip_r"]:
-		var v: Variant = cfg.get_value(BARROW_SECTION, k, null)
+	for k in ["pos", "rot", "grip_l", "grip_r", "pos_crouch", "rot_crouch"]:
+		# a null default makes godot complain about every missing key
+		if not cfg.has_section_key(BARROW_SECTION, k):
+			continue
+		var v: Variant = cfg.get_value(BARROW_SECTION, k)
 		if v is Vector3 and v.is_finite():
 			out[k] = v
 		elif v != null:
 			return {}
 	# pos and rot go together, and so do the grips
-	if out.has("pos") != out.has("rot") or out.has("grip_l") != out.has("grip_r"):
+	if out.has("pos") != out.has("rot") or out.has("grip_l") != out.has("grip_r") 			or out.has("pos_crouch") != out.has("rot_crouch"):
 		return {}
 	return out
 

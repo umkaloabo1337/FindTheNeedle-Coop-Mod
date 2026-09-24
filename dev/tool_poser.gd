@@ -16,13 +16,15 @@
 # The pose is in the farmer's hand space: X to their right, Y up, Z back (-Z
 # is where they face), and it tilts with the look pitch. Saved to
 # tool_poses.cfg next to mp_avatar.gd. Tools with no entry keep the automatic
-# fit, and tools with no crouch pose use the standing one when crouched. dev/tool_poser.bat starts the game with this as a second autoload
+# fit, and tools with no crouch pose use the standing one when crouched.
+# dev/tool_poser.bat starts the game with this as a second autoload
 # (ToolPoser) and puts override.cfg back when you close it.
 #
 # The wheelbarrow (7) is placed from the farmer's feet instead, same axes but
 # no pitch, and the hands reach for its two handle grips. The grips are found
 # on the model; the white dots move them if that's off (click one, or G),
-# in the barrow's own space. Saved as [wheelbarrow].
+# in the barrow's own space. C gives it an optional crouch pose too; without
+# one it just tips back onto its legs. Saved as [wheelbarrow].
 extends Node
 
 const OUT_FILE := "tool_poses.cfg"
@@ -391,6 +393,8 @@ func set_pose(p: Dictionary) -> void:
 
 
 func has_crouch_pose() -> bool:
+	if tool == BARROW:
+		return av.barrow_pose(false).has("pos_crouch")
 	return av.tool_pose(tool).has("crouch")
 
 
@@ -413,13 +417,22 @@ func _barrow_edit() -> Dictionary:
 	var bp: Dictionary = av.barrow_pose()
 	if grip >= 0:
 		return {"pos": bp.grip_l if grip == 0 else bp.grip_r, "rot": Vector3.ZERO, "length": 1.0}
+	if edit_crouch and bp.has("pos_crouch"):
+		return {"pos": bp.pos_crouch, "rot": bp.rot_crouch, "length": 1.0}
 	return {"pos": bp.pos, "rot": bp.rot, "length": 1.0}
 
 
 # only what was touched gets saved: the grips stay automatic until moved
 func _set_barrow(p: Dictionary) -> void:
 	var bp: Dictionary = av.barrow_pose(false)
-	if grip < 0:
+	if grip < 0 and edit_crouch:
+		# the crouch pose needs the standing one next to it
+		var full: Dictionary = av.barrow_pose()
+		bp.pos = full.pos
+		bp.rot = full.rot
+		bp.pos_crouch = p.pos
+		bp.rot_crouch = p.rot
+	elif grip < 0:
 		bp.pos = p.pos
 		bp.rot = p.rot
 	else:
@@ -457,8 +470,7 @@ func _grip_world(i: int) -> Vector3:
 # crouched so you see what you're doing
 func set_stance(crouched: bool) -> void:
 	_end_drag()
-	# the barrow has no crouch pose, C just crouches the farmer
-	edit_crouch = crouched and tool != BARROW
+	edit_crouch = crouched
 	crouch = crouched
 	msg = ""
 	_sync_ui()
@@ -466,6 +478,17 @@ func set_stance(crouched: bool) -> void:
 
 func drop_crouch() -> void:
 	_end_drag()
+	if tool == BARROW:
+		var bp: Dictionary = av.barrow_pose(false)
+		if not bp.has("pos_crouch"):
+			return
+		bp.erase("pos_crouch")
+		bp.erase("rot_crouch")
+		av.set_barrow_pose(bp)
+		dirty = true
+		msg = "La carretilla agachado vuelve a apoyarse sola"
+		_sync_ui()
+		return
 	var saved: Dictionary = av.tool_pose(tool)
 	if not saved.has("crouch"):
 		return
@@ -500,8 +523,6 @@ func select_tool(id: int) -> void:
 	_end_drag()
 	tool = id
 	msg = ""
-	if tool == BARROW:
-		edit_crouch = false
 	_show_barrow()
 	if av.is_node_ready():
 		av.set_target(Vector3.ZERO, _yaw, pitch, _av_tool(), 1.0 if crouch else 0.0, MOVES[move])
@@ -534,7 +555,11 @@ func reset_tool() -> void:
 	_end_drag()
 	if tool == BARROW:
 		var bp: Dictionary = av.barrow_pose(false)
-		if grip < 0:
+		if grip < 0 and edit_crouch:
+			bp.erase("pos_crouch")
+			bp.erase("rot_crouch")
+			msg = "La carretilla agachado vuelve a apoyarse sola"
+		elif grip < 0:
 			bp.erase("pos")
 			bp.erase("rot")
 			msg = "Carretilla en su pose por defecto"
@@ -868,7 +893,7 @@ func _input(e: InputEvent) -> void:
 		KEY_F:
 			frame_tool()
 		KEY_C:
-			set_stance(not (crouch if tool == BARROW else edit_crouch))
+			set_stance(not edit_crouch)
 		KEY_R, KEY_HOME:
 			reset_view()
 		KEY_F9:
@@ -1177,7 +1202,7 @@ func _sync_ui() -> void:
 		_rows[f][0].value = vals[f]
 		_rows[f][1].value = vals[f]
 	_syncing = false
-	_stance_row.visible = not on_barrow
+	_stance_row.visible = true
 	_grip_row.visible = on_barrow
 	for i in _grip_btns.size():
 		_grip_btns[i].set_pressed_no_signal(i - 1 == grip)
@@ -1201,9 +1226,12 @@ func _update_text() -> void:
 	if av == null or _state == null:
 		return
 	if tool == BARROW:
-		_state.text = "%d  %s  ·  %s  ·  agarres: %s%s%s" % [tool, TOOLS[tool],
+		_state.text = "%d  %s  ·  %s  ·  agarres: %s  ·  agachado: %s%s%s%s" % [tool, TOOLS[tool],
 			"pose a mano" if has_pose() else "por defecto",
 			"a mano" if has_grips() else "automáticos",
+			"propia" if has_crouch_pose() else "se apoya sola",
+			"
+EDITANDO LA POSE DE AGACHADO" if edit_crouch and grip < 0 else "",
 			"" if grip < 0 else "
 MOVIENDO EL %s" % GRIPS[grip + 1].to_upper(),
 			"" if _barrow != null else "
