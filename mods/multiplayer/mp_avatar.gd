@@ -534,7 +534,8 @@ func _process(delta: float) -> void:
 		if _pushing():
 			_place_barrow()
 	var tool_txt: String = TOOL_NAMES[_tool] if _tool >= 0 and _tool < TOOL_NAMES.size() else ""
-	_label.text = _name if tool_txt == "" or _tool == 0 else "%s\n[%s]" % [_name, tr(tool_txt)]
+	# no tool in the tag while both hands are on the barrow
+	_label.text = _name if tool_txt == "" or _tool == 0 or _pushing() else "%s\n[%s]" % [_name, tr(tool_txt)]
 
 
 func _follow_player(delta: float) -> void:
