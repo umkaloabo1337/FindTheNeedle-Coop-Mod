@@ -17,6 +17,7 @@ extends Node
 
 const TICK := 0.1
 const FIELD_TICK := 0.5
+const FULL_TICK := 2.0    # how often every part goes out again, packets get lost
 const RANGE := 32.0        # metres from a player before a machine is worth sending
 const MOVE_EPS := 0.0015
 const ANG_EPS := 0.004
@@ -59,7 +60,11 @@ var builds: Node
 var _parts := {}    # key -> Array[Node3D] in walk order
 var _ids := {}      # key -> PackedInt32Array, each part named by its path
 var _slot := {}     # key -> {part id: index into _parts}
-var _sent := {}     # key -> Array[Transform3D] last broadcast
+var _sent := {}     # key -> {part id: last transform broadcast}
+var _full := false  # this tick, send every part again
+var _refresh_t := 0.0
+var _fx := {}       # key -> per part: its light and its shader values
+var _fx_sent := {}  # key -> {"part:slot": last value sent}
 var _flags := {}    # key -> PackedByteArray last broadcast
 var _vals := {}     # key -> Dictionary of fields last broadcast
 var _goal := {}     # key -> {part index: Transform3D}
@@ -79,6 +84,7 @@ func start(mp_node: Node, world_node: Node) -> void:
 
 func shutdown() -> void:
 	_parts.clear()
+	_fx.clear()
 	_ids.clear()
 	_slot.clear()
 	_sent.clear()
@@ -88,6 +94,7 @@ func shutdown() -> void:
 	_nodes.clear()
 	# walk the models again: the game adds and drops nodes as it runs
 	_parts.clear()
+	_fx.clear()
 	_ids.clear()
 	_slot.clear()
 	_group.clear()
@@ -105,6 +112,7 @@ func _rescan() -> void:
 	_nodes.clear()
 	# walk the models again: the game adds and drops nodes as it runs
 	_parts.clear()
+	_fx.clear()
 	_ids.clear()
 	_slot.clear()
 	_group.clear()
@@ -196,6 +204,10 @@ func _process(delta: float) -> void:
 	_t += delta
 	if _t >= TICK:
 		_t = 0.0
+		_refresh_t += TICK
+		_full = _refresh_t >= FULL_TICK
+		if _full:
+			_refresh_t = 0.0
 		_send_poses()
 	_field_t += delta
 	if _field_t >= FIELD_TICK:
@@ -238,10 +250,13 @@ func _send_poses() -> void:
 		var parts := _parts_of(key)
 		if parts.is_empty():
 			continue
-		var last: Array = _sent.get(key, [])
-		if last.size() != parts.size():
-			last = []
-			last.resize(parts.size())
+		# Every part now and then, not only the ones that just moved: poses go
+		# out on an unreliable channel, and a part that moves once and stops
+		# would stay wrong on the other screen for good if that packet was
+		# lost. It also puts right anything that started out differently.
+		var last: Dictionary = _sent.get(key, {})
+		if _full:
+			last = {}
 		var part_ids := _ids_of(key)
 		var flags := PackedByteArray()
 		flags.resize(parts.size())
@@ -254,10 +269,10 @@ func _send_poses() -> void:
 			var node := part as Node3D
 			flags[i] = _flags_of(node)
 			var xf: Transform3D = node.transform
-			var was: Variant = last[i]
+			var was: Variant = last.get(part_ids[i])
 			if was != null and _same(was, xf):
 				continue
-			last[i] = xf
+			last[part_ids[i]] = xf
 			moved.append(part_ids[i])
 			# the whole basis, not a rotation and a scale: some parts are
 			# skewed and rebuilding them from a quaternion left them crooked
@@ -271,13 +286,19 @@ func _send_poses() -> void:
 		if moved.size() > 0:
 			entry["i"] = moved
 			entry["t"] = rows
-		if _flags.get(key, PackedByteArray()) != flags:
+		if _full or _flags.get(key, PackedByteArray()) != flags:
 			_flags[key] = flags
 			var fl := PackedInt32Array()
 			for i in parts.size():
 				fl.append(part_ids[i])
 				fl.append(flags[i])
 			entry["f"] = fl
+		var fx_ids := PackedInt32Array()
+		var fx_vals := PackedFloat32Array()
+		_read_fx(key, fx_ids, fx_vals)
+		if fx_vals.size() > 0:
+			entry["xi"] = fx_ids
+			entry["xv"] = fx_vals
 		if not entry.is_empty():
 			batch[key] = entry
 	if batch.is_empty():
@@ -359,6 +380,8 @@ func on_poses(packed: PackedByteArray, raw_size: int) -> void:
 					if part != null and is_instance_valid(part):
 						_set_flags(part as Node3D, flags[k + 1])
 				k += 2
+		if entry.has("xi") and entry.has("xv"):
+			on_fx(key, entry["xi"], entry["xv"])
 		if not entry.has("t") or not entry.has("i"):
 			continue
 		var moved: PackedInt32Array = entry["i"]
@@ -370,11 +393,19 @@ func on_poses(packed: PackedByteArray, raw_size: int) -> void:
 				break
 			if not slot.has(moved[j]):
 				continue
-			want[moved[j]] = Transform3D(Basis(
+			var to := Transform3D(Basis(
 					Vector3(rows[r + 3], rows[r + 4], rows[r + 5]),
 					Vector3(rows[r + 6], rows[r + 7], rows[r + 8]),
 					Vector3(rows[r + 9], rows[r + 10], rows[r + 11])),
 				Vector3(rows[r], rows[r + 1], rows[r + 2]))
+			# walk from where the part is now to where it has got to, over the
+			# gap between packets. Chasing the newest pose with a fixed pull
+			# made every arm and grabber move in steps.
+			var at: int = int(slot[moved[j]])
+			var from: Transform3D = to
+			if at < parts.size() and parts[at] != null and is_instance_valid(parts[at]):
+				from = (parts[at] as Node3D).transform
+			want[moved[j]] = [from, to, 0.0]
 		_goal[key] = want
 
 
@@ -416,7 +447,7 @@ func _apply_field(n: Node, f: String, v: Variant) -> void:
 func _ease(delta: float) -> void:
 	if _goal.is_empty():
 		return
-	var f := minf(1.0, delta * SMOOTH)
+	var step_t := delta / TICK
 	for key in _goal:
 		var parts := _parts_of(key)
 		var slot := _slot_of(key)
@@ -431,19 +462,19 @@ func _ease(delta: float) -> void:
 			if part == null or not is_instance_valid(part):
 				done.append(part_id)
 				continue
-			var node := part as Node3D
-			var target: Transform3D = want[part_id]
-			# eased axis by axis: interpolate_with would pull a skewed part
-			# through a rotation it never had
-			var now := node.transform
-			var step := Transform3D(Basis(
-					now.basis.x.lerp(target.basis.x, f),
-					now.basis.y.lerp(target.basis.y, f),
-					now.basis.z.lerp(target.basis.z, f)),
-				now.origin.lerp(target.origin, f))
-			node.transform = step
-			if step.origin.distance_to(target.origin) < 0.0005:
-				node.transform = target
+			var walk: Array = want[part_id]
+			var from: Transform3D = walk[0]
+			var to: Transform3D = walk[1]
+			var t: float = minf(1.0, float(walk[2]) + step_t)
+			walk[2] = t
+			# axis by axis: interpolate_with would pull a skewed part through a
+			# rotation it never had
+			(part as Node3D).transform = Transform3D(Basis(
+					from.basis.x.lerp(to.basis.x, t),
+					from.basis.y.lerp(to.basis.y, t),
+					from.basis.z.lerp(to.basis.z, t)),
+				from.origin.lerp(to.origin, t))
+			if t >= 1.0:
 				done.append(part_id)
 		for gone in done:
 			want.erase(gone)
@@ -456,3 +487,112 @@ func send_all(_pid: int) -> void:
 	_sent.clear()
 	_flags.clear()
 	_vals.clear()
+
+
+# ------------------------------------------------------------------ glow
+
+# Smoke columns, fire glow and dials are driven by a shader value or a light's
+# strength, not by a node moving, so a frozen machine looks cold without them.
+# Work out once per part what it has, then send only what changed.
+func _fx_of(key: String) -> Array:
+	if _fx.has(key):
+		return _fx[key]
+	var out: Array = []
+	for part in _parts_of(key):
+		var node := part as Node3D
+		var entry: Dictionary = {}
+		if node is Light3D:
+			entry["light"] = node
+		var mat: Variant = _shader_of(node)
+		if mat != null:
+			var names := PackedStringArray()
+			for u in (mat as ShaderMaterial).shader.get_shader_uniform_list():
+				if int(u.get("type", -1)) == TYPE_FLOAT:
+					names.append(String(u.get("name", "")))
+			if names.size() > 0:
+				entry["mat"] = mat
+				entry["names"] = names
+		out.append(entry if not entry.is_empty() else null)
+	_fx[key] = out
+	return out
+
+
+func _shader_of(n: Node3D) -> Variant:
+	if not (n is GeometryInstance3D):
+		return null
+	var g := n as GeometryInstance3D
+	if g.material_override is ShaderMaterial:
+		return g.material_override
+	if n is MeshInstance3D:
+		var mi := n as MeshInstance3D
+		if mi.get_surface_override_material_count() > 0 \
+		and mi.get_surface_override_material(0) is ShaderMaterial:
+			return mi.get_surface_override_material(0)
+		if mi.mesh != null and mi.mesh.get_surface_count() > 0 \
+		and mi.mesh.surface_get_material(0) is ShaderMaterial:
+			return mi.mesh.surface_get_material(0)
+	return null
+
+
+# -1 as the slot means the light's strength, 0 and up are shader values
+func _read_fx(key: String, ids: PackedInt32Array, vals: PackedFloat32Array) -> void:
+	var fx := _fx_of(key)
+	var part_ids := _ids_of(key)
+	var was: Dictionary = _fx_sent.get(key, {})
+	if _full:
+		was = {}
+	for i in fx.size():
+		var entry: Variant = fx[i]
+		if entry == null:
+			continue
+		var d: Dictionary = entry
+		if d.has("light"):
+			var light: Variant = d["light"]
+			if is_instance_valid(light):
+				_note_fx(part_ids[i], -1, (light as Light3D).light_energy, was, ids, vals)
+		if not d.has("mat"):
+			continue
+		var mat: Variant = d["mat"]
+		if not is_instance_valid(mat):
+			continue
+		var names: PackedStringArray = d["names"]
+		for j in names.size():
+			var v: Variant = (mat as ShaderMaterial).get_shader_parameter(names[j])
+			if v == null:
+				continue
+			_note_fx(part_ids[i], j, float(v), was, ids, vals)
+	_fx_sent[key] = was
+
+
+func _note_fx(part_id: int, slot: int, v: float, was: Dictionary,
+		ids: PackedInt32Array, vals: PackedFloat32Array) -> void:
+	var at := "%d:%d" % [part_id, slot]
+	if was.has(at) and absf(float(was[at]) - v) < 0.004:
+		return
+	was[at] = v
+	ids.append(part_id)
+	ids.append(slot)
+	vals.append(v)
+
+
+func on_fx(key: String, ids: PackedInt32Array, vals: PackedFloat32Array) -> void:
+	var fx := _fx_of(key)
+	var slot := _slot_of(key)
+	var k := 0
+	while k + 1 < ids.size() and k / 2 < vals.size():
+		var at: int = int(slot.get(ids[k], -1))
+		var which: int = ids[k + 1]
+		var v: float = vals[k / 2]
+		k += 2
+		if at < 0 or at >= fx.size() or fx[at] == null:
+			continue
+		var d: Dictionary = fx[at]
+		if which < 0:
+			if d.has("light") and is_instance_valid(d["light"]):
+				(d["light"] as Light3D).light_energy = v
+			continue
+		if not d.has("mat") or not is_instance_valid(d["mat"]):
+			continue
+		var names: PackedStringArray = d["names"]
+		if which < names.size():
+			(d["mat"] as ShaderMaterial).set_shader_parameter(names[which], v)

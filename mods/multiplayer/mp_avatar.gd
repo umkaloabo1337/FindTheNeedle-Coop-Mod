@@ -887,6 +887,7 @@ var _needle_mi: MeshInstance3D
 func set_hands(straws: int, needle_type: int) -> void:
 	_straws_held = clampi(straws, 0, 15)
 	_show_needle(needle_type)
+	_show_clump(_straws_held)
 
 
 func straws_held() -> int:
@@ -923,3 +924,46 @@ func _show_needle(type: int) -> void:
 	# pinched between the fingers, pointing the way they look
 	_needle_mi.transform = Transform3D(Basis(Vector3.RIGHT, -1.2), Vector3(0.0, -0.02, -0.14)) \
 		* StrandFactory.needle_visual_xform(type)
+
+
+# One straw is drawn as one straw. From two up it becomes a small ball of
+# hay, the wad the belts carry, growing a little with each one, because a
+# handful of loose strands reads as a bunch of sticks. It never gets near the
+# size of the real thing: a full hand is about nine straws.
+const CLUMP_AT := 2
+const CLUMP_ITEM := "hay_wad"
+const CLUMP_SCALE := 0.19
+const CLUMP_STEP := 0.022
+const CLUMP_MAX := 9
+var _clump: Node3D
+
+
+func _show_clump(straws: int) -> void:
+	if straws < CLUMP_AT:
+		if _clump != null and is_instance_valid(_clump):
+			_clump.visible = false
+		return
+	if _clump == null or not is_instance_valid(_clump):
+		var made: Variant = ItemDb.make(CLUMP_ITEM)
+		if made == null:
+			return
+		_clump = made as Node3D
+		_clump.name = "HandfulOfHay"
+		# a decoration, not a thing in the world
+		_clump.set("freeze", true)
+		_clump.set("collision_layer", 0)
+		_clump.set("collision_mask", 0)
+		_clump.set_physics_process(false)
+		_clump.set_process(false)
+		var yard := get_parent()
+		if yard != null and "live" in _clump:
+			_clump.set("live", yard.get("live"))
+		if _hand != null and is_instance_valid(_hand):
+			_hand.add_child(_clump)
+		else:
+			add_child(_clump)
+		_clump.position = Vector3(0.0, -0.05, -0.15)
+	# a hand holds about the same however full it is: size it once, and never
+	# feed it strands, or it grows with every pose packet that arrives
+	_clump.scale = Vector3.ONE * (CLUMP_SCALE + CLUMP_STEP * float(mini(straws, CLUMP_MAX)))
+	_clump.visible = true

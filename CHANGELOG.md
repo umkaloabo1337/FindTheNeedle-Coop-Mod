@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.13.0
+
+* A guest who accepts an invite is told what is going on. A card lists the
+  five steps (connecting, the host is picking a save, receiving the yard with
+  the real transfer percentage, loading, in) and a line under it says what
+  they should do, which is usually nothing. It gets out of the way once they
+  land, and comes back if the host walks out to the menu.
+* Joining, leaving and chat no longer drop a bare line of text in the middle
+  of the screen. Each one is a card in the player's own colour, they stack,
+  they fade on their own, and the same message twice gets a ×2 instead of a
+  second card.
+* The loading screen a guest sees while entering was hard-coded in Spanish.
+  It follows the game's language like everything else now.
+* Machines move smoothly instead of in steps. Their parts were chasing the
+  newest pose with a fixed pull, so every packet gave them a shove and they
+  coasted in between. Each part now walks from where it was to where it got
+  to, over the gap between packets.
+* A machine's parts are all sent again every couple of seconds. Poses travel
+  on a channel that does not resend what it drops, so a part that moved once
+  and stopped, like an arm parking or a lid closing, could stay wrong on the
+  other screen for good. It also puts right anything that started out
+  differently.
+* Smoke, flames and lamps show up on machines that are not yours. The
+  generator's smoke is a value inside a shader and its fire is a light, not
+  particles, so a frozen machine looked cold. Those are copied now as well.
+* Straw somebody throws lands where it lands instead of stuttering: copies
+  slide to the position they were last seen at, and they are picked up twice
+  as often, so they show the moment they leave a hand.
+* A fistful of straw is drawn as a small pile, the one the belts carry,
+  instead of a bundle of upright strands. It was also growing with every pose
+  packet that arrived, which is how it ended up the size of a bale.
+
 ## v0.12.0
 
 * Machines no longer come out crooked on the other screen. Each moving part

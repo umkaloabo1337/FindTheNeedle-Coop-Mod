@@ -6,7 +6,25 @@ const COL_TITLE := Color(1.0, 0.86, 0.34)
 const COL_TEXT := Color(0.95, 0.96, 0.99)
 const COL_DIM := Color(0.7, 0.73, 0.79)
 const COL_BG := Color(0.03, 0.04, 0.06, 0.92)
+const COL_PLATE := Color(0.04, 0.05, 0.07, 0.88)  # the game's own HUD plate
+const COL_OFF := Color(0.44, 0.46, 0.5)  # the menu's "not yet" grey
+const COL_DONE := Color(0.55, 0.78, 0.55)
+const COL_BAR := Color(0.84, 0.66, 0.28)  # the loading screen's bar
+const COL_BAR_BACK := Color(1.0, 1.0, 1.0, 0.08)
+const CARD_RADIUS := 6
 const FEED_SECONDS := 7.0
+const FEED_MAX := 6
+const FEED_IN := 0.18
+const FEED_OUT := 1.1
+const WAIT_W := 420.0
+const WAIT_TICK := 0.15  # the hand-off has no signals, so poll for its state
+const WAIT_DONE := 5.0  # how long "you are in" stays up before it gets out of the way
+const MARK_DONE := "✓"
+const MARK_NOW := "▶"
+const MARK_WAIT := "·"
+
+# What a guest is waiting for, in the order it happens.
+enum Step { CONNECT, SAVE, WORLD, LOADING, INSIDE }
 
 var mp: Node
 
@@ -39,7 +57,28 @@ var _ips_label: Label
 var _feed: VBoxContainer
 var _chat_edit: LineEdit
 var _roster: RichTextLabel
+var _roster_on := false
 var _mouse_was_captured := false
+
+# last notification, so the same message twice counts up instead of stacking
+var _last_note: Control = null
+var _last_note_text := ""
+var _last_note_n := 1
+
+# the guest's "what is happening" card
+var _wait: PanelContainer
+var _wait_title: Label
+var _wait_sub: Label
+var _wait_hint: Label
+var _wait_bar: ProgressBar
+var _wait_marks: Array[Label] = []
+var _wait_names: Array[Label] = []
+var _wait_sig := ""  # only rewrite the card when something actually changed
+var _wait_now := -1
+var _wait_clock := 0.0
+var _wait_t := 0.0
+var _wait_done_at := 0.0
+var _progress_v := -1.0
 
 
 func _ready() -> void:
@@ -48,6 +87,7 @@ func _ready() -> void:
 	_build_feed()
 	_build_roster()
 	_build_chat()
+	_build_wait()
 	_build_panel()
 	refresh()
 
@@ -80,6 +120,7 @@ func _global_class(n: String) -> Script:
 func _label(text: String, size := 18, col := COL_TEXT, wrap := false) -> Label:
 	var l := Label.new()
 	l.text = text
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", col)
 	if wrap:
@@ -89,6 +130,58 @@ func _label(text: String, size := 18, col := COL_TEXT, wrap := false) -> Label:
 	if f != null and size >= 20:
 		l.add_theme_font_override("font", f)
 	return l
+
+
+# the game's font on a small label too: HUD cards use it at every size
+func _use_font(l: Label) -> void:
+	var f := _font()
+	if f != null:
+		l.add_theme_font_override("font", f)
+
+
+# The game's HUD plate: near-black, a little see-through, with a coloured edge
+# down the left so a card reads as "who" at a glance.
+func _plate(accent: Color, mx := 14.0, my := 10.0) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = COL_PLATE
+	sb.border_color = accent
+	sb.border_width_left = 4
+	sb.set_corner_radius_all(CARD_RADIUS)
+	sb.content_margin_left = mx
+	sb.content_margin_right = mx
+	sb.content_margin_top = my
+	sb.content_margin_bottom = my
+	sb.shadow_color = Color(0, 0, 0, 0.35)
+	sb.shadow_size = 6
+	return sb
+
+
+func _dot(col: Color) -> Control:
+	var p := Panel.new()
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.custom_minimum_size = Vector2(10, 10)
+	p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = col
+	sb.set_corner_radius_all(5)
+	p.add_theme_stylebox_override("panel", sb)
+	return p
+
+
+# thin gold on a faint track, like the game's own loading bar
+func _style_bar(bar: ProgressBar) -> void:
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.show_percentage = false
+	bar.min_value = 0.0
+	bar.max_value = 100.0
+	var back := StyleBoxFlat.new()
+	back.bg_color = COL_BAR_BACK
+	back.set_corner_radius_all(3)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = COL_BAR
+	fill.set_corner_radius_all(3)
+	bar.add_theme_stylebox_override("background", back)
+	bar.add_theme_stylebox_override("fill", fill)
 
 
 func _button(text: String, cb: Callable, accent := false) -> Button:
@@ -245,9 +338,9 @@ func _build_panel() -> void:
 	_status = _label("", 17, COL_TEXT, true)
 	v.add_child(_status)
 	_progress = ProgressBar.new()
-	_progress.custom_minimum_size = Vector2(0, 14)
-	_progress.show_percentage = false
+	_progress.custom_minimum_size = Vector2(0, 8)
 	_progress.visible = false
+	_style_bar(_progress)
 	v.add_child(_progress)
 
 	_players_label = RichTextLabel.new()
@@ -269,10 +362,9 @@ func _build_panel() -> void:
 func _build_feed() -> void:
 	_feed = VBoxContainer.new()
 	_feed.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_feed.position = Vector2(24, -300)
-	_feed.custom_minimum_size = Vector2(620, 0)
 	_feed.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_feed.alignment = BoxContainer.ALIGNMENT_END
+	_feed.add_theme_constant_override("separation", 6)
 	_feed.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_feed)
 	# bottom centre, above the hotbar: clear of the menu column and the HUD cards
@@ -282,8 +374,8 @@ func _build_feed() -> void:
 	_feed.anchor_bottom = 1.0
 	_feed.offset_top = -420
 	_feed.offset_bottom = -200
-	_feed.offset_left = -360
-	_feed.offset_right = 360
+	_feed.offset_left = -280
+	_feed.offset_right = 280
 
 
 func _build_roster() -> void:
@@ -320,6 +412,69 @@ func _build_chat() -> void:
 	_chat_edit.add_theme_font_size_override("font_size", 18)
 	_chat_edit.text_submitted.connect(_on_chat_submit)
 	add_child(_chat_edit)
+
+
+# A guest who accepts an invite has nothing to press and nothing to look at
+# while the host picks a save, so spell out every step of the hand-off. Right
+# hand side, vertically centred: clear of the menu column and of the hotbar.
+func _build_wait() -> void:
+	_wait = PanelContainer.new()
+	_wait.visible = false
+	_wait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_wait.add_theme_stylebox_override("panel", _plate(COL_TITLE, 20.0, 16.0))
+	_wait.anchor_left = 1.0
+	_wait.anchor_right = 1.0
+	_wait.anchor_top = 0.5
+	_wait.anchor_bottom = 0.5
+	_wait.offset_left = -(WAIT_W + 44.0)
+	_wait.offset_right = -44.0
+	_wait.grow_vertical = Control.GROW_DIRECTION_BOTH
+	add_child(_wait)
+
+	var v := VBoxContainer.new()
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_theme_constant_override("separation", 8)
+	_wait.add_child(v)
+
+	_wait_title = _label(mp.t("wait_title"), 22, COL_TITLE)
+	v.add_child(_wait_title)
+	_wait_sub = _label("", 14, COL_DIM)
+	_use_font(_wait_sub)
+	v.add_child(_wait_sub)
+
+	var rows := VBoxContainer.new()
+	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rows.add_theme_constant_override("separation", 5)
+	v.add_child(rows)
+	for i in Step.size():
+		var row := HBoxContainer.new()
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_theme_constant_override("separation", 8)
+		var mark := _label(MARK_WAIT, 16, COL_OFF)
+		mark.custom_minimum_size.x = 16
+		mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_use_font(mark)
+		# the row has a real width here, so wrapping behaves
+		var name_l := _label("", 16, COL_OFF)
+		name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_use_font(name_l)
+		row.add_child(mark)
+		row.add_child(name_l)
+		rows.add_child(row)
+		_wait_marks.append(mark)
+		_wait_names.append(name_l)
+
+	_wait_bar = ProgressBar.new()
+	_wait_bar.custom_minimum_size = Vector2(0, 8)
+	_wait_bar.visible = false
+	_style_bar(_wait_bar)
+	v.add_child(_wait_bar)
+
+	_wait_hint = _label("", 15, COL_DIM)
+	_wait_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_use_font(_wait_hint)
+	v.add_child(_wait_hint)
 
 
 # ---------------------------------------------------------------- behaviour
@@ -362,7 +517,7 @@ func _toggle_debug_menu() -> void:
 	if dm == null or not is_instance_valid(dm):
 		var cls := _global_class("DebugMenu")
 		if cls == null:
-			notify("This build has no debug menu.")
+			notify(mp.t("no_debug_menu"))
 			return
 		dm = cls.new()
 		dm.name = "DebugMenu"
@@ -453,6 +608,7 @@ func close_panel() -> void:
 		return
 	_root.visible = false
 	_restore_mouse()
+	_update_wait()  # the card stands in for the panel once it is closed
 
 
 func _open_chat() -> void:
@@ -492,32 +648,65 @@ func set_status(text: String) -> void:
 
 
 func set_progress(v: float) -> void:
+	_progress_v = v
 	_progress.visible = v >= 0.0
 	if v >= 0.0:
 		_progress.value = v * 100.0
+	_update_wait()
 
 
-func notify(text: String) -> void:
+func notify(text: String, accent := COL_TITLE) -> void:
 	print("[MPMod] ", text)
 	set_status(text)
-	var l := _label(text, 18, COL_TEXT)
-	l.add_theme_constant_override("outline_size", 6)
-	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_push_feed(l)
+	# the same line twice in a row counts up on the card it already has
+	if text == _last_note_text and is_instance_valid(_last_note) and _last_note.get_parent() == _feed:
+		_last_note_n += 1
+		var badge: Variant = _last_note.get_meta("badge", null)
+		if badge is Label:
+			(badge as Label).text = mp.t("note_repeat") % _last_note_n
+			(badge as Label).visible = true
+		_feed.move_child(_last_note, _feed.get_child_count() - 1)
+		_feed_life(_last_note, false)
+		return
+	_last_note_text = text
+	_last_note_n = 1
+	_last_note = _feed_card(accent, "", text)
+	_push_feed(_last_note)
 
 
 func chat_line(who: String, col: Color, text: String) -> void:
-	var r := RichTextLabel.new()
-	r.bbcode_enabled = true
-	r.fit_content = true
-	r.scroll_active = false
-	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	r.add_theme_font_size_override("normal_font_size", 18)
-	r.add_theme_constant_override("outline_size", 6)
-	r.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	r.text = "[color=#%s][b]%s:[/b][/color] %s" % [col.to_html(false), _esc(who), _esc(text)]
-	_push_feed(r)
+	_forget_note()
+	_push_feed(_feed_card(col, mp.t("chat_name") % who, text))
+
+
+# One notification: dark plate, the player's colour as a dot and as the edge,
+# the game's font. Cards stack upwards and age out on their own.
+func _feed_card(accent: Color, who: String, text: String) -> PanelContainer:
+	var card := PanelContainer.new()
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_theme_stylebox_override("panel", _plate(accent))
+	card.modulate.a = 0.0
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 9)
+	card.add_child(row)
+	row.add_child(_dot(accent))
+	if who != "":
+		var n := _label(who, 17, accent)
+		_use_font(n)
+		row.add_child(n)
+	var msg := _label(text, 17, COL_TEXT)
+	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	msg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_use_font(msg)
+	row.add_child(msg)
+	var badge := _label("", 14, COL_DIM)
+	badge.visible = false
+	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_use_font(badge)
+	row.add_child(badge)
+	card.set_meta("badge", badge)
+	return card
 
 
 func _esc(s: String) -> String:
@@ -526,13 +715,151 @@ func _esc(s: String) -> String:
 
 func _push_feed(c: Control) -> void:
 	_feed.add_child(c)
-	while _feed.get_child_count() > 8:
-		_feed.get_child(0).queue_free()
-		_feed.remove_child(_feed.get_child(0))
+	while _feed.get_child_count() > FEED_MAX:
+		var old := _feed.get_child(0) as Control
+		_feed.remove_child(old)
+		_drop_feed(old)
+	_feed_life(c, true)
+
+
+# fade in, hold, fade out: nothing is ever overwritten in place
+func _feed_life(c: Control, fade_in: bool) -> void:
+	_kill_life(c)
 	var t := create_tween()
+	c.set_meta("tw", t)
+	if fade_in:
+		t.tween_property(c, "modulate:a", 1.0, FEED_IN)
+	else:
+		c.modulate.a = 1.0
 	t.tween_interval(FEED_SECONDS)
-	t.tween_property(c, "modulate:a", 0.0, 1.2)
-	t.tween_callback(c.queue_free)
+	t.tween_property(c, "modulate:a", 0.0, FEED_OUT)
+	t.tween_callback(_drop_feed.bind(c))
+
+
+func _kill_life(c: Control) -> void:
+	var tw: Variant = c.get_meta("tw", null)
+	if tw is Tween and (tw as Tween).is_valid():
+		(tw as Tween).kill()
+
+
+func _drop_feed(c: Control) -> void:
+	if not is_instance_valid(c):
+		return
+	_kill_life(c)
+	if _last_note == c:
+		_forget_note()
+	c.queue_free()
+
+
+func _forget_note() -> void:
+	_last_note = null
+	_last_note_text = ""
+	_last_note_n = 1
+
+
+# ---------------------------------------------------------------- guest card
+
+# The hand-off is driven by RPCs with no signals to hang off, so poll the
+# session state instead: it is a handful of reads and it also catches the host
+# dropping back to the menu.
+func _process(delta: float) -> void:
+	if _wait == null:
+		return
+	_wait_clock += delta
+	if _wait_clock >= WAIT_TICK:
+		_wait_clock = 0.0
+		_update_wait()
+	_pulse_wait(delta)
+
+
+# Which step a guest is on, or -1 when the card has no business being up.
+func _wait_step() -> int:
+	if not mp.active() or mp.is_host:
+		return -1
+	if mp.phase == mp.Phase.IN_WORLD and mp.in_world():
+		return Step.INSIDE
+	if mp.phase == mp.Phase.LOADING:
+		# the world arrives in chunks first, then the game loads it
+		return Step.WORLD if _progress_v >= 0.0 else Step.LOADING
+	if mp.phase == mp.Phase.LOBBY:
+		var host: Dictionary = mp.players.get(1, {})
+		# the host is in a world already: ours is being packed up and sent
+		return Step.WORLD if str(host.get("state", "")) == "world" else Step.SAVE
+	return Step.CONNECT
+
+
+func _update_wait() -> void:
+	if _wait == null:
+		return
+	var step := _wait_step()
+	var up := step >= 0 and not (_root != null and _root.visible)
+	if step < 0:
+		_wait_done_at = 0.0
+	elif step == Step.INSIDE:
+		if _wait_done_at <= 0.0:
+			_wait_done_at = _clock() + WAIT_DONE
+		elif _clock() >= _wait_done_at:
+			up = false
+	else:
+		_wait_done_at = 0.0
+	if up:
+		var pct: int = int(round(_progress_v * 100.0)) if _progress_v >= 0.0 else -1
+		var host := ""
+		if mp.players.has(1):
+			var hp: Dictionary = mp.players[1]
+			host = str(hp.get("name", ""))
+		var sig := "%d|%d|%s|%s" % [step, pct, host, mp.i18n.locale()]
+		if sig != _wait_sig:
+			_wait_sig = sig
+			_write_wait(step, pct, host)
+	_wait.visible = up
+	if _roster != null:
+		# one place at a time: the card already says who we are waiting for
+		_roster.visible = _roster_on and not up
+
+
+func _write_wait(step: int, pct: int, host: String) -> void:
+	_wait_title.text = mp.t("wait_title")
+	_wait_sub.text = mp.t("wait_sub") % host
+	_wait_sub.visible = host != ""
+	var names := PackedStringArray(["wait_connect", "wait_save", "wait_world", "wait_load", "wait_in"])
+	for i in _wait_names.size():
+		var mark := _wait_marks[i]
+		var row := _wait_names[i]
+		if i == step and i == Step.WORLD and pct >= 0:
+			row.text = mp.t("wait_world_pct") % pct  # the only step with a number
+		else:
+			row.text = mp.t(names[i])
+		mark.modulate.a = 1.0
+		if i < step:
+			mark.text = MARK_DONE
+			mark.add_theme_color_override("font_color", COL_DONE)
+			row.add_theme_color_override("font_color", COL_DIM)
+		elif i == step:
+			mark.text = MARK_NOW
+			mark.add_theme_color_override("font_color", COL_TITLE)
+			row.add_theme_color_override("font_color", COL_TEXT)
+		else:
+			mark.text = MARK_WAIT
+			mark.add_theme_color_override("font_color", COL_OFF)
+			row.add_theme_color_override("font_color", COL_OFF)
+	var hints := PackedStringArray(["wait_hint_connect", "wait_hint_save", "wait_hint_world", "wait_hint_load", "wait_hint_in"])
+	_wait_hint.text = mp.t(hints[step])
+	_wait_bar.visible = step == Step.WORLD and pct >= 0
+	_wait_bar.value = float(maxi(pct, 0))
+	_wait_now = step
+
+
+# the step we are on breathes, so a slow transfer still looks alive
+func _pulse_wait(delta: float) -> void:
+	if not _wait.visible or _wait_now < 0 or _wait_now >= _wait_marks.size() or _wait_now == Step.INSIDE:
+		return
+	_wait_t += delta
+	_wait_marks[_wait_now].modulate.a = 0.55 + 0.45 * absf(sin(TAU * _wait_t * 0.55))
+
+
+func _clock() -> float:
+	return float(Time.get_ticks_msec()) / 1000.0
 
 
 # Three numbered steps with the current one highlighted, so nobody has to
@@ -624,15 +951,14 @@ func refresh() -> void:
 		_ips_label.text = mp.t("ips_hidden")
 		_ips_btn.text = mp.t("show_ips")
 	# roster in the corner while playing together
-	if on and mp.players.size() > 0:
+	_roster_on = on and mp.players.size() > 0
+	if _roster_on:
 		var rl := PackedStringArray()
 		for id in mp.players:
 			var p: Dictionary = mp.players[id]
 			rl.append("[right][color=#%s]●[/color] %s[/right]" % [(p["color"] as Color).to_html(false), _esc(str(p["name"]))])
 		_roster.text = "\n".join(rl)
-		_roster.visible = true
-	else:
-		_roster.visible = false
+	_update_wait()  # sets both its own visibility and the roster's
 
 
 # ---------------------------------------------------------------- main menu

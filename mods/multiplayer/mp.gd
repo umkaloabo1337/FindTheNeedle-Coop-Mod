@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.12.0"
+const VERSION := "0.13.0"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8
 const WORLD_CHUNK := 60000
@@ -353,7 +353,7 @@ func _on_peer_connected(id: int) -> void:
 
 func _on_peer_disconnected(id: int) -> void:
 	if players.has(id):
-		ui.notify(t("left") % players[id]["name"])
+		ui.notify(t("left") % players[id]["name"], players[id]["color"])
 		players.erase(id)
 	if world_sync != null:
 		world_sync.remove_avatar(id)
@@ -420,7 +420,7 @@ func _rx_hello(pname: String, ver: String) -> void:
 	if pname == "":
 		pname = t("player_fallback") % id
 	players[id] = {"name": pname, "color": col, "state": "lobby"}
-	ui.notify(t("joined") % pname)
+	ui.notify(t("joined") % pname, col)
 	_rx_players.rpc(players)
 	ui.refresh()
 	if in_world():
@@ -549,7 +549,7 @@ func _enter_mp_world(payload: Dictionary) -> void:
 	phase = Phase.LOADING
 	ui.set_status(t("loading_world"))
 	ui.close_panel()
-	Loading.show_screen("FIND THE NEEDLE", "ENTRANDO AL PAJAR DE %s" % player_name(1).to_upper())
+	Loading.show_screen("FIND THE NEEDLE", t("entering_yard") % player_name(1).to_upper())
 	Loading.enter_scene(GAME_SCENE)
 
 

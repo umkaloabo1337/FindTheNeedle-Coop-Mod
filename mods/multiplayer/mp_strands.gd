@@ -13,8 +13,8 @@ extends Node
 # have come to rest stop costing anything, since their pose never changes
 # again, and nothing is sent about straws too far from anyone else to see.
 
-const SCAN_TICK := 0.2
-const MOVE_TICK := 0.15
+const SCAN_TICK := 0.1
+const MOVE_TICK := 0.1
 const CENSUS_TICK := 5.0
 const RANGE := 26.0        # what a remote player could see, Cfg.STRAND_DESPAWN_DIST
 const MOVE_EPS := 0.004
@@ -31,6 +31,7 @@ var _mine := {}      # sid -> body we own
 var _ghost := {}     # sid -> our copy of somebody else's straw
 var _sent := {}      # sid -> last transform broadcast
 var _owner := {}     # sid -> peer, for ghosts
+var _goal := {}      # sid -> where a copy is heading, eased so it does not jump
 var _next := 0
 var _scan_t := 0.0
 var _move_t := 0.0
@@ -77,6 +78,7 @@ func _process(delta: float) -> void:
 		return
 	# keeps following the fist even if the link hiccups
 	_park_hands()
+	_ease(delta)
 	_watch_hand()
 	if mp == null or not mp.active() or multiplayer.multiplayer_peer == null:
 		return
@@ -231,9 +233,10 @@ func on_move(ids: PackedInt64Array, rows: PackedFloat32Array) -> void:
 		var k := i * 7
 		if k + 6 >= rows.size():
 			return
-		_place(b, Transform3D(
+		var to := Transform3D(
 			Basis(Quaternion(rows[k + 3], rows[k + 4], rows[k + 5], rows[k + 6])),
-			Vector3(rows[k], rows[k + 1], rows[k + 2])))
+			Vector3(rows[k], rows[k + 1], rows[k + 2]))
+		_goal[ids[i]] = [(b as Node3D).global_transform, to, 0.0]
 
 
 func on_del(ids: PackedInt64Array) -> void:
@@ -256,6 +259,7 @@ func on_census(sender: int, ids: PackedInt64Array) -> void:
 func _drop_ghost(sid: int) -> void:
 	var b: Variant = _ghost.get(sid)
 	_ghost.erase(sid)
+	_goal.erase(sid)
 	_owner.erase(sid)
 	if b != null and is_instance_valid(b) and live != null:
 		_revive(b)
@@ -390,6 +394,7 @@ func _watch_hand() -> void:
 		if sid == 0 or not _ghost.has(sid):
 			continue
 		_ghost.erase(sid)
+		_goal.erase(sid)
 		_owner.erase(sid)
 		b.remove_meta("mp_ghost")
 		b.remove_meta("mp_gid")
@@ -412,3 +417,30 @@ func on_claim(sender: int, sid: int) -> void:
 			live.consume(mine)
 		return
 	_drop_ghost(sid)
+
+
+# A thrown straw moves fast and we only hear about it ten times a second, so
+# slide the copy towards where it was last seen instead of teleporting it.
+func _ease(delta: float) -> void:
+	if _goal.is_empty():
+		return
+	var step_t := delta / MOVE_TICK
+	var done: Array = []
+	for sid in _goal:
+		var b: Variant = _ghost.get(sid)
+		if b == null or not is_instance_valid(b):
+			done.append(sid)
+			continue
+		var walk: Array = _goal[sid]
+		var from: Transform3D = walk[0]
+		var to: Transform3D = walk[1]
+		var t: float = minf(1.0, float(walk[2]) + step_t)
+		walk[2] = t
+		_place(b, Transform3D(
+			Basis(from.basis.get_rotation_quaternion().slerp(
+				to.basis.get_rotation_quaternion(), t)),
+			from.origin.lerp(to.origin, t)))
+		if t >= 1.0:
+			done.append(sid)
+	for sid in done:
+		_goal.erase(sid)

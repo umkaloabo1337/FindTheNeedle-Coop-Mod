@@ -267,7 +267,9 @@ func on_pose(id: int, pos: Vector3, yaw: float, pitch: float, tool: int, crouch:
 	if a.has_method("set_hands"):
 		a.set_hands(hands & 15, ((hands >> 4) & 15) - 1)
 	if strands_sync != null and is_instance_valid(strands_sync):
-		strands_sync.set_hand(id, hands & 15)
+		# one straw is a straw; from two up the farmer holds a small ball of hay
+		var straws: int = hands & 15
+		strands_sync.set_hand(id, 0 if straws >= 2 else straws)
 
 
 func remove_avatar(id: int) -> void:
