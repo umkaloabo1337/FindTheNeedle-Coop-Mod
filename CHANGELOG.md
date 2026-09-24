@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+* Other players see you push the wheelbarrow. Your farmer holds it by both
+  handles, leans into it and puts the tool away, instead of standing next to
+  a barrow that floats where your first-person view has it. It has a
+  hand-placed pose for standing and one for crouching, both made in the tool
+  poser (entry 7). Needs this version on both sides; older ones still see
+  the loose barrow.
+
 ## v0.10.0
 
 * Machines were never really stopped on clients. The game runs them from one
@@ -39,11 +48,6 @@
   everyone else. The toy shovel is a real item even while held, and its copy
   followed the holder's first-person view next to the one in the farmer's
   hand. Copies of held tools are now hidden while they are up there.
-* Other players see you push the wheelbarrow. Your farmer holds it by both
-  handles, leans into it and puts the tool away, instead of standing next to
-  a barrow that floats where your first-person view has it. Its pose can be
-  placed by hand in the tool poser (entry 7). Needs this version on both
-  sides; older ones still see the loose barrow.
 
 ## v0.9.0
 
