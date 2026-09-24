@@ -191,7 +191,9 @@ and save them with F9. How to enable it is at the top of the file.
 holding the tool you pick (1-6). Drag the move (W) or rotate (E) gizmo on the
 tool, or use the sliders on the right, and preview looking up and down,
 walking, crouching or a turntable. The camera orbits, pans and flies like in
-the Godot editor. F9 writes `tool_poses.cfg` into the mod folder. The keys are
+the Godot editor. C switches to an optional crouch pose, for tools that should
+sit differently when crouched; without one they keep the standing pose. F9
+writes `tool_poses.cfg` into the mod folder. The keys are
 listed at the top of the file. `dev/tool_poser.bat` starts the game with it and
 puts `override.cfg` back when you close the game.
 

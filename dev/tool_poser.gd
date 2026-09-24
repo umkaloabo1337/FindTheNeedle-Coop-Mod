@@ -8,12 +8,13 @@
 #   right drag       orbit        middle drag   pan        wheel   zoom
 #   right + WASD/QE  fly (Shift faster)
 #   F                frame the tool         R   reset the view
+#   C                edit the standing pose / the optional crouch pose
 #   F9               save (same as the Guardar button)
 #
 # The pose is in the farmer's hand space: X to their right, Y up, Z back (-Z
 # is where they face), and it tilts with the look pitch. Saved to
 # tool_poses.cfg next to mp_avatar.gd. Tools with no entry keep the automatic
-# fit. dev/tool_poser.bat starts the game with this as a second autoload
+# fit, and tools with no crouch pose use the standing one when crouched. dev/tool_poser.bat starts the game with this as a second autoload
 # (ToolPoser) and puts override.cfg back when you close it.
 extends Node
 
@@ -44,6 +45,7 @@ var cam: Camera3D
 var tool := 1
 var pitch := 0.0
 var crouch := false
+var edit_crouch := false  # editing the optional crouch pose instead of the standing one
 var move := 0
 var turntable := false
 var rotating := false
@@ -84,6 +86,8 @@ var _move_btns := []
 var _pitch_sl: HSlider
 var _pitch_lbl: Label
 var _crouch_cb: CheckBox
+var _stance_btns := []
+var _drop_crouch: Button
 var _turn_cb: CheckBox
 var _state: Label
 var _unsaved: Label
@@ -308,12 +312,24 @@ func _const(name: String) -> Variant:
 	return av.get_script().get_script_constant_map().get(name)
 
 
-# what the farmer holds now: the saved pose, or the automatic fit read back
-# off the holder so editing starts from what you see
+# the pose being edited: standing, or crouched (which starts as a copy of
+# the standing one until it gets its own)
 func current_pose() -> Dictionary:
+	var st := _stand_pose()
+	if not edit_crouch:
+		return st
+	var saved: Dictionary = av.tool_pose(tool)
+	if saved.has("crouch"):
+		return saved.crouch.duplicate()
+	return {"pos": st.pos, "rot": st.rot, "length": st.length}
+
+
+# the saved standing pose, or the automatic fit read back off the holder so
+# editing starts from what you see
+func _stand_pose() -> Dictionary:
 	var p: Dictionary = av.tool_pose(tool)
 	if not p.is_empty():
-		return p.duplicate()
+		return {"pos": p.pos, "rot": p.rot, "length": p.length}
 	var lengths: Dictionary = _const("TOOL_LENGTHS")
 	var out := {"pos": Vector3.ZERO, "rot": Vector3.ZERO, "length": float(lengths.get(tool, 1.2))}
 	var holder := _holder()
@@ -327,8 +343,42 @@ func set_pose(p: Dictionary) -> void:
 	p.pos = p.pos.snappedf(0.001)
 	p.rot = Vector3(_wrap(p.rot.x), _wrap(p.rot.y), _wrap(p.rot.z)).snappedf(0.1)
 	p.length = clampf(snappedf(p.length, 0.005), 0.1, 2.5)
-	av.set_tool_pose(tool, p)
+	var saved: Dictionary = av.tool_pose(tool)
+	var full: Dictionary
+	if edit_crouch:
+		full = _stand_pose()
+		full.crouch = {"pos": p.pos, "rot": p.rot, "length": p.length}
+	else:
+		full = {"pos": p.pos, "rot": p.rot, "length": p.length}
+		if saved.has("crouch"):
+			full.crouch = saved.crouch
+	av.set_tool_pose(tool, full)
 	dirty = true
+	_sync_ui()
+
+
+func has_crouch_pose() -> bool:
+	return av.tool_pose(tool).has("crouch")
+
+
+# edit the standing pose or the crouch one. the crouch one shows the farmer
+# crouched so you see what you're doing
+func set_stance(crouched: bool) -> void:
+	_end_drag()
+	edit_crouch = crouched
+	crouch = crouched
+	msg = ""
+	_sync_ui()
+
+
+func drop_crouch() -> void:
+	_end_drag()
+	var saved: Dictionary = av.tool_pose(tool)
+	if not saved.has("crouch"):
+		return
+	av.set_tool_pose(tool, {"pos": saved.pos, "rot": saved.rot, "length": saved.length})
+	dirty = true
+	msg = "%s agachado usa la pose de pie" % TOOLS[tool]
 	_sync_ui()
 
 
@@ -396,6 +446,11 @@ func save() -> void:
 		cfg.set_value(sec, "rot", p.rot)
 		cfg.set_value(sec, "length", p.length)
 		lines.append("[%s] pos=%s rot=%s length=%.3f" % [sec, p.pos, p.rot, p.length])
+		if p.has("crouch"):
+			cfg.set_value(sec, "pos_crouch", p.crouch.pos)
+			cfg.set_value(sec, "rot_crouch", p.crouch.rot)
+			cfg.set_value(sec, "length_crouch", p.crouch.length)
+			lines.append("    crouch pos=%s rot=%s length=%.3f" % [p.crouch.pos, p.crouch.rot, p.crouch.length])
 	var path := ProjectSettings.globalize_path(save_dir.path_join(OUT_FILE))
 	var err := cfg.save(path)
 	if err != OK:
@@ -653,6 +708,8 @@ func _input(e: InputEvent) -> void:
 				set_mode(k.keycode == KEY_E)
 		KEY_F:
 			frame_tool()
+		KEY_C:
+			set_stance(not edit_crouch)
 		KEY_R, KEY_HOME:
 			reset_view()
 		KEY_F9:
@@ -727,7 +784,7 @@ func _build_ui() -> void:
 	var help := _text(15)
 	help.text = "\n".join([
 		"Clic izq. en el gizmo: mover / rotar    Ctrl: a saltos    Esc: deshacer el arrastre",
-		"W: mover    E: rotar    1-6: herramienta    F9: guardar",
+		"W: mover    E: rotar    C: pose de pie / agachado    1-6: herramienta    F9: guardar",
 		"Clic der.: orbitar    Clic central: desplazar    Rueda: zoom",
 		"Clic der. + WASD / Q E: volar (Mayús: más rápido)    F: encuadrar    R: vista inicial",
 		"Ejes de la mano: X derecha (rojo), Y arriba (verde), Z atrás (azul)",
@@ -784,6 +841,22 @@ func _build_ui() -> void:
 		btn.pressed.connect(set_mode.bind(i == 1))
 		modes.add_child(btn)
 		_mode_btns.append(btn)
+
+	var stance := HBoxContainer.new()
+	box.add_child(stance)
+	var stl := Label.new()
+	stl.text = "Pose:"
+	stance.add_child(stl)
+	var stance_group := ButtonGroup.new()
+	for i in 2:
+		var btn := _button("De pie" if i == 0 else "Agachado (C)", stance_group)
+		btn.pressed.connect(set_stance.bind(i == 1))
+		stance.add_child(btn)
+		_stance_btns.append(btn)
+	_drop_crouch = _button("Quitar agachado", null)
+	_drop_crouch.tooltip_text = "Borra la pose de agachado, agachado usará la de pie"
+	_drop_crouch.pressed.connect(drop_crouch)
+	stance.add_child(_drop_crouch)
 
 	var grid := GridContainer.new()
 	grid.columns = 3
@@ -857,7 +930,10 @@ func _build_ui() -> void:
 	_crouch_cb = CheckBox.new()
 	_crouch_cb.text = "Agachado"
 	_crouch_cb.focus_mode = Control.FOCUS_NONE
-	_crouch_cb.toggled.connect(func(on: bool) -> void: crouch = on)
+	_crouch_cb.toggled.connect(func(on: bool) -> void:
+		crouch = on
+		if not on and edit_crouch:
+			set_stance(false))
 	checks.add_child(_crouch_cb)
 	_turn_cb = CheckBox.new()
 	_turn_cb.text = "Girar sobre sí mismo"
@@ -925,6 +1001,9 @@ func _sync_ui() -> void:
 	_pitch_sl.set_value_no_signal(rad_to_deg(pitch))
 	_pitch_lbl.text = "%d°" % roundi(rad_to_deg(pitch))
 	_crouch_cb.set_pressed_no_signal(crouch)
+	_stance_btns[0].set_pressed_no_signal(not edit_crouch)
+	_stance_btns[1].set_pressed_no_signal(edit_crouch)
+	_drop_crouch.disabled = not has_crouch_pose()
 	_turn_cb.set_pressed_no_signal(turntable)
 	_update_text()
 
@@ -933,8 +1012,10 @@ func _update_text() -> void:
 	if av == null or _state == null:
 		return
 	var loaded := _holder() != null or not av.is_node_ready()
-	_state.text = "%d  %s  ·  %s%s" % [tool, TOOLS[tool],
+	_state.text = "%d  %s  ·  %s  ·  agachado: %s%s%s" % [tool, TOOLS[tool],
 		"pose a mano" if has_pose() else "automático",
+		"propia" if has_crouch_pose() else "usa la de pie",
+		"\nEDITANDO LA POSE DE AGACHADO" if edit_crouch else "",
 		"" if loaded else "\n¡modelo no encontrado!"]
 	_unsaved.visible = dirty
 	_msg.text = msg
