@@ -151,10 +151,12 @@ mods/multiplayer/     what ships in the release
   mp_ui.gd            panel, chat, notifications
   mp_avatar.gd        the other players' figures
   mp_i18n.gd          UI strings per language
+  tool_poses.cfg      hand-placed held tools (optional, made with tool_poser)
   models/             farmer model (CC0)
   steam/              GodotSteam GDExtension (prebuilt)
 dev/mp_test.gd        test harness, not shipped
 dev/avatar_calib.gd   live avatar height tuning, not shipped
+dev/tool_poser.gd     place held tools on the farmer by hand, not shipped
 dev/models/           tooling used to prepare the model
 docs/                 Nexus page copy
 ```
@@ -172,7 +174,8 @@ missing or fails to load, an older figure made of primitives stands in. The
 Tool models hang off the avatar's hand. Each one is scaled to its real length
 (`TOOL_LENGTHS`) along its longest axis and turned so the working end points
 away from the hand. Set `flip_tool` on an avatar to turn a model 180 degrees
-while testing a new one.
+while testing a new one. A tool with an entry in `tool_poses.cfg` skips that
+guess and uses the saved position, rotation and length instead.
 
 To use the test harness, copy `dev/mp_test.gd` next to `mp.gd` and start the
 game with `MP_TEST_AVATAR=user://saves/slot_1.dat` set, plus `MP_TEST_TOOL=1`
@@ -182,6 +185,12 @@ writes a screenshot.
 `dev/avatar_calib.gd` puts a farmer in front of you that copies your look and
 crouch, so you can tune `MODEL_HEIGHT` and `CROUCH_DROP` with the arrow keys
 and save them with F9. How to enable it is at the top of the file.
+
+`dev/tool_poser.gd` works the same way: a farmer stands in front of you with
+the tool you pick (1-6), and you move, turn and resize it with the keys, the
+mouse or the sliders on the right, while previewing looking up and down,
+walking and crouching. F9 writes `tool_poses.cfg` into the mod folder. The keys
+are listed at the top of the file.
 
 ## Credits
 

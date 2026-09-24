@@ -155,10 +155,12 @@ mods/multiplayer/     lo que va en la release
   mp_ui.gd            panel, chat, avisos
   mp_avatar.gd        las figuras de los otros jugadores
   mp_i18n.gd          textos de la interfaz por idioma
+  tool_poses.cfg      herramientas colocadas a mano (opcional, de tool_poser)
   models/             modelo del granjero (CC0)
   steam/              GodotSteam GDExtension (compilado)
 dev/mp_test.gd        arnés de pruebas, no se distribuye
 dev/avatar_calib.gd   ajuste en vivo de la altura del avatar, no se distribuye
+dev/tool_poser.gd     colocar a mano las herramientas del granjero, no se distribuye
 dev/models/           herramientas para preparar el modelo
 docs/                 textos de la página de Nexus
 ```
@@ -177,7 +179,8 @@ deja de 1,3 MB en 500 KB.
 Los modelos de herramienta cuelgan de la mano del avatar. Cada uno se escala a
 su largo real (`TOOL_LENGTHS`) por su eje más largo y se gira para que la parte
 útil apunte lejos de la mano. Con `flip_tool` en un avatar se gira 180 grados,
-útil al probar un modelo nuevo.
+útil al probar un modelo nuevo. Si una herramienta tiene entrada en
+`tool_poses.cfg`, se usan la posición, el giro y el largo guardados en su lugar.
 
 Para usar el arnés de pruebas, copia `dev/mp_test.gd` junto a `mp.gd` y arranca
 el juego con `MP_TEST_AVATAR=user://saves/slot_1.dat`, y `MP_TEST_TOOL=1` para
@@ -187,6 +190,12 @@ una captura.
 `dev/avatar_calib.gd` te pone delante un granjero que copia hacia dónde miras
 y si te agachas, para ajustar `MODEL_HEIGHT` y `CROUCH_DROP` con las flechas y
 guardarlos con F9. Cómo activarlo está al principio del archivo.
+
+`dev/tool_poser.gd` funciona igual: tienes delante un granjero con la
+herramienta que elijas (1-6) y la mueves, giras y cambias de tamaño con las
+teclas, el ratón o los deslizadores de la derecha, viendo cómo queda al mirar
+arriba y abajo, al andar y al agacharse. F9 escribe `tool_poses.cfg` en la
+carpeta del mod. Las teclas están al principio del archivo.
 
 ## Créditos
 
