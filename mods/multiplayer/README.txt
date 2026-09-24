@@ -1,4 +1,4 @@
-FIND THE NEEDLE CO-OP MOD  v0.9.1
+FIND THE NEEDLE CO-OP MOD  v0.10.0
 ==================================
 
 Unofficial mod. Every player needs the game (the free Steam demo) and this
@@ -58,17 +58,16 @@ WHAT IS SHARED
   - Loose items: buckets, sacks, bales, wads. You see what the others pick
     up, carry, drop and throw, and you can pick their things up yourself.
   - What is riding on the belts.
+  - Loose straw on the ground, so everyone digs into the same mess.
+  - How the machines move, their smoke and lamps, and their settings.
 
 KNOWN LIMITATIONS
 -----------------
-  - Machines that turn hay into something (piston rake, robotic arm, drone,
-    scanner, compressor, pulper, paper machine, press, wrapper, silo,
-    pelletizer, launcher, hatch) only run on the host. Clients get the belts
-    and the items they produce, but the machines themselves stand still.
-    Running them everywhere counted the hay and the money twice.
-  - Loose straw is local: what flies out when you dig and the hay on your
-    fork. What it turns into (wads, tufts, bales) is shared.
-  - Machine settings are not synced.
+  - Machines run on the host only, so the same hay cannot be counted twice.
+    Clients see them move, smoke and light up, and their settings match, but
+    the work itself happens on one machine.
+  - The hay in your own hands is not drawn on your farmer for the others
+    yet. Straw on the ground is shared; straw on your fork is not.
   - Bought tools are per player. Money is shared.
   - Only the host saves. Clients never write to their own saves.
   - The online leaderboard is disabled while the mod is loaded.

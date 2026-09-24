@@ -78,6 +78,8 @@ counting for the leaderboards.
 * Loose items: buckets, sacks, bales, wads. You see what the others pick up,
   carry, drop and throw, and you can pick up their things yourself.
 * What is riding on the belts.
+* Loose straw on the ground, so everyone digs into the same mess.
+* How the machines move, their smoke and lamps, and their settings.
 
 ## Languages
 
@@ -89,14 +91,11 @@ translations, so they read the same as in the rest of the UI.
 
 ## Known limitations
 
-* Machines that turn hay into something (piston rake, robotic arm, drone,
-  scanner, compressor, pulper, paper machine, briquette press, wrapper, silo,
-  pelletizer, launcher, hatch) only run on the host. Clients get the belts and
-  the items that come out of them, but the machines themselves stand still.
-  This is deliberate: running them everywhere counted hay and money twice.
-* Loose straw is local: the strands that fly out when you dig, and the hay on
-  your fork. What they turn into (wads, tufts, bales) is shared.
-* Machine settings such as filters and switches are not synced.
+* Machines run on the host only, so the same hay cannot be counted twice.
+  Clients see them move, smoke and light up, and their settings match, but the
+  work itself happens on one machine.
+* The hay in your own hands is not drawn on your farmer for the others yet.
+  Straw on the ground is shared; straw on your fork is not.
 * Bought tools are per player. Money is shared.
 * Only the host saves. Clients never write to their own save files.
 * The online leaderboard is disabled while the mod is loaded.

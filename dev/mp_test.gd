@@ -97,12 +97,24 @@ func _process(delta: float) -> void:
 		if wt > 26.0 and not _did.has("props2"):
 			_did["props2"] = true
 			_act_props_move()
+		if wt > 22.0 and not _did.has("straws") and role == "host":
+			_did["straws"] = true
+			_act_straws()
+		if wt > 26.0 and not _did.has("machine") and role == "host":
+			_did["machine"] = true
+			_act_machine()
+		if wt > 31.0 and not _did.has("wiggle") and role == "host":
+			_did["wiggle"] = true
+			_wiggle_part()
 		if wt > 30.0 and not _did.has("belt") and role == "host":
 			_did["belt"] = true
 			_act_belt()
 		if wt > 34.0 and not _did.has("belt_shot"):
 			_did["belt_shot"] = true
 			_look_at_belt()
+		if wt > 40.0 and not _did.has("grab") and role == "host":
+			_did["grab"] = true
+			_grab_theirs()
 		if wt > 8.0 and not _did.has("shot_world"):
 			_did["shot_world"] = true
 			_look_at_avatar()
@@ -195,6 +207,44 @@ func _act_belt() -> void:
 	print("[MPTEST] host laid a conveyor and boarded %d wads, run=%d" % [n, conv.run.count()])
 
 
+# walk up to an item the other player owns and try to pick it up: the copy
+# has to carry its collision shape with it or the aim ray goes straight past
+func _grab_theirs() -> void:
+	var ws: Node = mp.world_sync
+	var ps: Node = ws.props_sync
+	var target: Node3D = null
+	var tid := 0
+	for pid in ps._by_id:
+		if ps._mine(pid):
+			continue
+		var it: Variant = ps._by_id[pid]
+		if it != null and is_instance_valid(it) and it.item_id != "sand_shovel":
+			target = it
+			tid = pid
+			break
+	if target == null:
+		print("[MPTEST] %s has nothing of theirs to grab" % role)
+		return
+	var p: Node3D = ws.player
+	var at: Vector3 = target.global_position
+	p.global_position = ws.world._seat(Vector3(at.x + 1.0, 0.0, at.z))
+	p.velocity = Vector3.ZERO
+	await get_tree().create_timer(0.6).timeout
+	# aim from the eye, not from the feet, or the ray goes over the item
+	var d: Vector3 = at - p.eye_position()
+	p.set_look(atan2(-d.x, -d.z), atan2(d.y, Vector2(d.x, d.z).length()))
+	await get_tree().create_timer(0.8).timeout
+	print("[MPTEST] %s reach=%.2f distance=%.2f" % [role, Tech.carry_reach(), d.length()])
+	var hit: Variant = p.carry._probe()
+	var ok: bool = p.carry.try_pick()
+	await get_tree().create_timer(0.5).timeout
+	print("[MPTEST] %s grabbing %s (id=%d): ray hit %s, picked=%s, carrying=%s, now mine=%s" % [
+		role, target.item_id, tid,
+		hit.item_id if hit != null else "nothing",
+		ok, p.carry.is_carrying(), ps._mine(tid)])
+	await _shot("grab")
+
+
 # both sides look at the belt, so the screenshots can be put side by side
 func _look_at_belt() -> void:
 	var ws: Node = mp.world_sync
@@ -267,7 +317,7 @@ func _report() -> void:
 		if is_instance_valid(b):
 			nn += 1
 	print("[MPTEST] needles=%d money=%.2f hay_total=%.1f hay_dug=%.1f heights_sum=%.3f builds=%d avatars=%d tech=%d players=%d %s" % [
-		nn, GameState.money, GameState.hay_total, GameState.hay_dug, sum, nb, ws.avatars.size(), Tech.ranks.size(), mp.players.size(), _props_line()])
+		nn, GameState.money, GameState.hay_total, GameState.hay_dug, sum, nb, ws.avatars.size(), Tech.ranks.size(), mp.players.size(), _props_line() + " " + _mach_line() + " " + _probe_part() + " " + _straw_line()])
 
 
 # both players meet at the (open) new-game spawn; the client looks at the host
@@ -352,3 +402,133 @@ func _show_avatar() -> void:
 	print("[MPTEST] debug menu open=%s" % (dm != null and dm.is_open()))
 	_clear_sentinel()
 	get_tree().quit()
+
+
+var _mach_prev := {}
+
+# how many machine parts moved since the last report: on a client that only
+# happens if the host's poses are arriving
+func _mach_line() -> String:
+	var ws: Node = mp.world_sync
+	var ms: Variant = ws.machines_sync
+	if ms == null:
+		return "mach=?"
+	var n := 0
+	var parts := 0
+	var moved := 0
+	for key in ms._nodes:
+		n += 1
+		var list: Array = ms._parts_of(key)
+		parts += list.size()
+		for i in list.size():
+			var node: Variant = list[i]
+			if node == null or not is_instance_valid(node):
+				continue
+			var k := "%s#%d" % [key, i]
+			var xf: Transform3D = (node as Node3D).transform
+			var was: Variant = _mach_prev.get(k)
+			if was != null and (was as Transform3D).origin.distance_to(xf.origin) > 0.002:
+				moved += 1
+			_mach_prev[k] = xf
+	return "mach=%d parts=%d moved=%d" % [n, parts, moved]
+
+
+# Build a rake and drive its clip by hand: the host's factory may be idle, and
+# what we are testing is whether the movement reaches the other side.
+func _act_machine() -> void:
+	var ws: Node = mp.world_sync
+	var at: Vector3 = ws.world._seat(Vector3(6.0, 0.0, 12.0))
+	var rake: Variant = ws.builds.add_piston_rake(at, 0.0)
+	if rake == null:
+		print("[MPTEST] could not place a rake")
+		return
+	await get_tree().create_timer(2.0).timeout
+	var ap: AnimationPlayer = _find_anim(rake)
+	if ap == null:
+		print("[MPTEST] the rake carries no AnimationPlayer")
+		return
+	var list: PackedStringArray = ap.get_animation_list()
+	if list.is_empty():
+		print("[MPTEST] the rake's player has no clips")
+		return
+	ap.process_mode = Node.PROCESS_MODE_ALWAYS
+	ap.speed_scale = 0.3
+	ap.play(list[0])
+	print("[MPTEST] host drives rake clip '%s' of %d" % [list[0], list.size()])
+
+
+func _find_anim(n: Node) -> AnimationPlayer:
+	for child in n.get_children():
+		if child is AnimationPlayer:
+			return child as AnimationPlayer
+		var deeper := _find_anim(child)
+		if deeper != null:
+			return deeper
+	return null
+
+
+# the same part on both sides, to compare where each one thinks it is
+func _probe_part() -> String:
+	var ws: Node = mp.world_sync
+	var ms: Variant = ws.machines_sync
+	if ms == null or ms._nodes.is_empty():
+		return "probe=-"
+	var keys: Array = ms._nodes.keys()
+	keys.sort()
+	var parts: Array = ms._parts_of(keys[0])
+	if parts.size() < 9:
+		return "probe=short"
+	var p: Node3D = parts[8]
+	return "probe=%s#8 %.3f,%.3f,%.3f" % [String(keys[0]).substr(0, 14),
+		p.transform.origin.x, p.transform.origin.y, p.transform.origin.z]
+
+
+# throw a handful of real straws where the other player is standing
+func _act_straws() -> void:
+	var ws: Node = mp.world_sync
+	var live: Node = ws._live()
+	var at: Vector3 = ws.player.global_position + Vector3(0.0, 1.4, 0.0)
+	var made := 0
+	for i in 30:
+		var p := at + Vector3(randf_range(-0.6, 0.6), randf_range(0.0, 0.5), randf_range(-0.6, 0.6))
+		var b: Variant = live.spawn(p, Basis(), Vector3(randf_range(-1.0, 1.0), 1.5, randf_range(-1.0, 1.0)),
+			Color(0.86, 0.72, 0.36))
+		if b != null:
+			made += 1
+	print("[MPTEST] %s threw %d straws at %v" % [role, made, at])
+
+
+func _straw_line() -> String:
+	var ws: Node = mp.world_sync
+	var ss: Variant = ws.strands_sync
+	if ss == null:
+		return "straw=?"
+	var live: Node = ws._live()
+	var total := 0
+	if live != null and live.has_method("active_count"):
+		total = int(live.active_count())
+	return "straw=%d mine=%d copies=%d" % [total, ss._mine.size(), ss._ghost.size()]
+
+
+# The rake will not run without power, so move one of its parts by hand for a
+# few seconds: what we are checking is that the movement reaches the client.
+func _wiggle_part() -> void:
+	var ws: Node = mp.world_sync
+	var ms: Variant = ws.machines_sync
+	if ms == null or ms._nodes.is_empty():
+		print("[MPTEST] no machine to wiggle")
+		return
+	var keys: Array = ms._nodes.keys()
+	keys.sort()
+	var parts: Array = ms._parts_of(keys[0])
+	if parts.size() < 9:
+		print("[MPTEST] machine has only %d parts" % parts.size())
+		return
+	var p: Node3D = parts[8]
+	var base: Vector3 = p.position
+	print("[MPTEST] host wiggling part 8 of %s from %v" % [keys[0], base])
+	for i in 420:
+		p.position = base + Vector3(0.0, sin(float(i) * 0.06) * 0.3, 0.0)
+		await get_tree().process_frame
+	p.position = base
+	print("[MPTEST] host stopped wiggling")

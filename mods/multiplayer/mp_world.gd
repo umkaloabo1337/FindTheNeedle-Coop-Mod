@@ -25,7 +25,9 @@ const STATE_TICK := 0.25
 # lifts, generators and the rest of the yard keep running everywhere.
 const CLIENT_FROZEN := ["piston_rakes", "robotic_arms", "hay_drones", "scanners",
 	"compressors", "pulpers", "papers", "briquette_presses", "wrappers", "silos",
-	"pelletizers", "tube_launchers", "dump_hatches", "needle_radars"]
+	"pelletizers", "tube_launchers", "dump_hatches", "needle_radars",
+	"generators", "boreholes", "splitters", "joiners", "hay_lifts", "hay_stairs",
+	"cabinets"]
 
 const BUILD_ARRAYS := ["conveyors", "corners", "water_mains", "water_splitters",
 	"robotic_arms", "platforms", "stairs", "railings", "walls", "roofs", "scanners",
@@ -48,6 +50,8 @@ var _avatar_script: Script
 var _me: Node  # our own body, seen when looking down
 var props_sync: Node  # loose item replication
 var belts_sync: Node  # what is riding on the belts
+var machines_sync: Node  # how the machines move and what they are set to
+var strands_sync: Node  # loose straw on the ground
 var _pose_t := 0.0
 
 var _hay_base := PackedFloat32Array()
@@ -88,6 +92,14 @@ func _ready() -> void:
 	belts_sync.name = "MPBelts"
 	add_child(belts_sync)
 	belts_sync.start(mp, world)
+	machines_sync = (load(mp.base_dir + "/mp_machines.gd") as Script).new()
+	machines_sync.name = "MPMachines"
+	add_child(machines_sync)
+	machines_sync.start(mp, world)
+	strands_sync = (load(mp.base_dir + "/mp_strands.gd") as Script).new()
+	strands_sync.name = "MPStrands"
+	add_child(strands_sync)
+	strands_sync.start(mp, world)
 	if field != null:
 		field.cells_redrawn.connect(_on_cells_redrawn)
 	if builds != null:
@@ -114,6 +126,10 @@ func shutdown() -> void:
 		props_sync.shutdown()
 	if belts_sync != null and is_instance_valid(belts_sync):
 		belts_sync.shutdown()
+	if machines_sync != null and is_instance_valid(machines_sync):
+		machines_sync.shutdown()
+	if strands_sync != null and is_instance_valid(strands_sync):
+		strands_sync.shutdown()
 	clear_avatars()
 	if is_instance_valid(_me):
 		_me.queue_free()
@@ -162,6 +178,11 @@ func apply_session_rules() -> void:
 		SaveManager.block_save = true
 		if "autosave_enabled" in world:
 			world.autosave_enabled = false
+		# needles that surface as the pile is dug are announced by the host;
+		# letting both sides pop them out gives two bodies for one needle
+		var live: Node = _live()
+		if live != null and "expose_uncovered" in live:
+			live.expose_uncovered = false
 		_freeze_client_machines()
 
 
@@ -245,6 +266,8 @@ func clear_avatars() -> void:
 func forget_peer(id: int) -> void:
 	if props_sync != null and is_instance_valid(props_sync):
 		props_sync.peer_gone(id)
+	if strands_sync != null and is_instance_valid(strands_sync):
+		strands_sync.peer_gone(id)
 	_peer_ack.erase(id)
 
 
@@ -459,15 +482,37 @@ func _add_buildings(dicts: Array) -> void:
 	builds.changed.emit()
 
 
+# Stopping a machine takes more than process_mode: the factory runs its
+# machines from one static list (FactoryClock._tick_machines) and skips only
+# the ones whose physics processing is off, so a "disabled" machine kept
+# eating hay and spawning items while standing perfectly still. Clear both
+# flags and the machine is really out of the loop; the host sends us how it
+# moves instead.
 func _freeze_client_machines() -> void:
 	if builds == null:
 		return
 	for a in CLIENT_FROZEN:
 		var arr: Variant = builds.get(a)
-		if arr is Array:
-			for n in arr:
-				if is_instance_valid(n) and n.process_mode != Node.PROCESS_MODE_DISABLED:
-					n.process_mode = Node.PROCESS_MODE_DISABLED
+		if not (arr is Array):
+			continue
+		for n in arr:
+			if not is_instance_valid(n) or n.has_meta("mp_stopped"):
+				continue
+			n.set_meta("mp_stopped", true)
+			n.set_process(false)
+			n.set_physics_process(false)
+			n.process_mode = Node.PROCESS_MODE_DISABLED
+			_still_animations(n)
+
+
+# Their clips would otherwise hold whatever frame they stopped on, or keep
+# looping, and fight the poses coming from the host.
+func _still_animations(n: Node) -> void:
+	for child in n.get_children():
+		if child is AnimationPlayer:
+			(child as AnimationPlayer).pause()
+			child.process_mode = Node.PROCESS_MODE_DISABLED
+		_still_animations(child)
 
 
 # ---------------------------------------------------------------- shared game state
@@ -739,6 +784,8 @@ func send_full_sync(pid: int) -> void:
 		props_sync.send_all(pid)
 	if belts_sync != null and is_instance_valid(belts_sync):
 		belts_sync.send_all(pid)
+	if machines_sync != null and is_instance_valid(machines_sync):
+		machines_sync.send_all(pid)
 
 
 func on_full_sync(heights: PackedFloat32Array, host_builds: Array, tech: Dictionary, needles: Array = []) -> void:
@@ -783,8 +830,8 @@ func _on_pile_replaced() -> void:
 	if not mp.active():
 		_pile_seed = GameState.run_seed
 		return
-	_frozen = true
 	if mp.is_host:
+		_frozen = true
 		mp.ui.notify(mp.t("new_pile_host"))
 		await get_tree().create_timer(1.5).timeout
 		if not is_inside_tree():
@@ -792,6 +839,11 @@ func _on_pile_replaced() -> void:
 		rebaseline()
 		mp.resync_all()
 	else:
+		# We just paid for the load. Get that out before freezing stops the
+		# state tick, or the host undoes its own charge expecting ours and the
+		# pile ends up free for everyone.
+		_state_tick()
+		_frozen = true
 		# the host owns the pile; ask it to swap its pile, it will send us the result
 		mp.ui.notify(mp.t("new_pile_client"))
 		mp._rx_new_pile_request.rpc_id(1)

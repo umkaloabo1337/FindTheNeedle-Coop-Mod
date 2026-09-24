@@ -1,4 +1,4 @@
-MOD COOPERATIVO PARA FIND THE NEEDLE  v0.9.1
+MOD COOPERATIVO PARA FIND THE NEEDLE  v0.10.0
 =============================================
 
 Mod no oficial. Todos los jugadores necesitan el juego (la demo, gratis en
@@ -59,18 +59,16 @@ QUE SE COMPARTE
   - Los objetos sueltos: cubos, sacos, fardos, manojos. Ves lo que los demas
     cogen, llevan, sueltan y lanzan, y puedes coger tu sus cosas.
   - Lo que va montado en las cintas.
+  - La paja suelta del suelo, para que todos caven sobre el mismo desorden.
+  - Como se mueven las maquinas, su humo y sus luces, y sus ajustes.
 
 LIMITACIONES CONOCIDAS
 ----------------------
-  - Las maquinas que convierten la paja en algo (rastrillo de piston, brazo
-    robotico, dron, escaner, compresora, pulper, papelera, prensa,
-    envolvedora, silo, peletizadora, lanzadera, compuerta) solo funcionan en
-    el anfitrion. Los clientes reciben las cintas y los objetos que salen de
-    ellas, pero las maquinas se ven quietas. Hacerlas funcionar en todas
-    partes contaba la paja y el dinero dos veces.
-  - La paja suelta es local: lo que salta al cavar y la paja de la horca. Los
-    objetos en los que se convierte (manojos, fardos, pacas) si se comparten.
-  - Los ajustes de las maquinas no se sincronizan.
+  - Las maquinas funcionan solo en el anfitrion, para que la misma paja no se
+    cuente dos veces. Los demas las ven moverse, echar humo y encender luces,
+    y sus ajustes coinciden, pero el trabajo lo hace una sola maquina.
+  - La paja que llevas en la mano todavia no se le dibuja en las manos a tu
+    granjero. La del suelo si se comparte.
   - Las herramientas compradas son de cada jugador. El dinero es comun.
   - Solo guarda el anfitrion. Los clientes no escriben en sus partidas.
   - La tabla de clasificacion online se desactiva con el mod cargado.

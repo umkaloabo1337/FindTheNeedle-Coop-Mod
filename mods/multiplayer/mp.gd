@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.9.1"
+const VERSION := "0.10.0"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8
 const WORLD_CHUNK := 60000
@@ -717,6 +717,58 @@ func _rx_belts(packed: PackedByteArray, raw_size: int) -> void:
 	if world_sync == null or world_sync.belts_sync == null:
 		return
 	world_sync.belts_sync.on_belts(packed, raw_size)
+
+
+# ---------------------------------------------------------------- machines
+
+@rpc("authority", "call_remote", "unreliable_ordered", 10)
+func _rx_machines(packed: PackedByteArray, raw_size: int) -> void:
+	if world_sync == null or world_sync.machines_sync == null:
+		return
+	world_sync.machines_sync.on_poses(packed, raw_size)
+
+
+@rpc("authority", "call_remote", "reliable", 10)
+func _rx_machine_fields(batch: Dictionary) -> void:
+	if world_sync == null or world_sync.machines_sync == null:
+		return
+	world_sync.machines_sync.on_fields(batch)
+
+
+# ---------------------------------------------------------------- loose straw
+
+func _straws() -> Node:
+	if world_sync == null:
+		return null
+	return world_sync.strands_sync
+
+
+@rpc("any_peer", "call_remote", "reliable", 11)
+func _rx_straw_add(adds: Array) -> void:
+	var s := _straws()
+	if s != null:
+		s.on_add(multiplayer.get_remote_sender_id(), adds)
+
+
+@rpc("any_peer", "call_remote", "unreliable_ordered", 12)
+func _rx_straw_move(ids: PackedInt64Array, rows: PackedFloat32Array) -> void:
+	var s := _straws()
+	if s != null:
+		s.on_move(ids, rows)
+
+
+@rpc("any_peer", "call_remote", "reliable", 11)
+func _rx_straw_del(ids: PackedInt64Array) -> void:
+	var s := _straws()
+	if s != null:
+		s.on_del(ids)
+
+
+@rpc("any_peer", "call_remote", "reliable", 11)
+func _rx_straw_census(ids: PackedInt64Array) -> void:
+	var s := _straws()
+	if s != null:
+		s.on_census(multiplayer.get_remote_sender_id(), ids)
 
 
 # ---------------------------------------------------------------- settings

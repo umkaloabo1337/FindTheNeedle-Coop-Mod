@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.10.0
+
+* Machines were never really stopped on clients. The game runs them from one
+  central clock that walks its own list and only skips a machine whose physics
+  processing is off, which `process_mode` does not touch. Nine of the fourteen
+  we thought were parked kept eating hay, filling belts and making items on
+  every player's machine at once, each with its own numbers. That is what made
+  one player see a machine working and the other see it idle. They are out of
+  the loop now.
+* Machines move on clients again. The host sends where their moving parts are,
+  which parts are drawn and which particles are running, so smoke, flames and
+  lamps come across too. It makes no difference whether a machine is driven by
+  an animation or from code.
+* Machine settings are shared: switches, splitter filters and priorities, rake
+  and pelletizer throw distance, launcher aim and power, silo and press stock,
+  lamp brightness, and the generator's fuel and output, which is what the
+  client's power grid reads to keep the yard running.
+* Loose straw is shared. The straw you dig up now lands on everyone's floor.
+  The copies have no physics and cannot be picked up, so a straw can never be
+  turned into hay twice.
+* Nobody was paying for a new load of hay. The client's charge never left,
+  because ordering a load stops its updates first, and the host then undid its
+  own charge assuming the client's was on the way.
+* Needles that surface on their own as the pile is dug are announced by the
+  host only. Both sides popping them out gave two bodies for one needle.
+
 ## v0.9.1
 
 * Items somebody else owns can be picked up again. Their copy was moved by
