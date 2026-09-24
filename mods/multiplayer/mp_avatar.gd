@@ -573,7 +573,8 @@ static func _load_poses(dir: String) -> Dictionary:
 		var pos: Variant = cfg.get_value(sec, "pos", Vector3.ZERO)
 		var rot: Variant = cfg.get_value(sec, "rot", Vector3.ZERO)
 		var length: Variant = cfg.get_value(sec, "length", 0.0)
-		if pos is Vector3 and rot is Vector3 and (length is float or length is int) 				and pos.is_finite() and rot.is_finite() and length > 0.01 and length < 10.0:
+		var ok := pos is Vector3 and rot is Vector3 and (length is float or length is int)
+		if ok and pos.is_finite() and rot.is_finite() and length > 0.01 and length < 10.0:
 			_poses[int(id)] = {"pos": pos, "rot": rot, "length": float(length)}
 		else:
 			push_warning("[MPMod] bad tool pose [%s] in %s, skipped" % [sec, path])
