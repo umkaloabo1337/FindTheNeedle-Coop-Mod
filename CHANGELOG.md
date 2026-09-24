@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+* A player holding the toy shovel no longer shows a second, floating one to
+  everyone else. The toy shovel is a real item even while held, and its copy
+  followed the holder's first-person view next to the one in the farmer's
+  hand. Copies of held tools are now hidden while they are up there.
+
 ## v0.9.0
 
 * Held tools are placed by hand. Each of the six tools has its own position,
