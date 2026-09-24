@@ -200,6 +200,11 @@ deban ir distintas al agacharse; si no tienen, usan la de pie. F9 escribe
 principio del archivo. `dev/tool_poser.bat` abre el juego con ella y deja
 `override.cfg` como estaba al cerrarlo.
 
+La 7 es la carretilla. El gizmo la mueve y la gira desde los pies del granjero,
+que agarra los dos mangos mientras tanto. Los agarres salen del modelo; si no
+quedan bien, haz clic en un punto blanco (o pulsa G) y arrástralo. Se guarda en
+`[wheelbarrow]` del mismo archivo, y si no está el mod usa su pose por defecto.
+
 ## Créditos
 
 Mod de AleDev11. Find The Needle, de
