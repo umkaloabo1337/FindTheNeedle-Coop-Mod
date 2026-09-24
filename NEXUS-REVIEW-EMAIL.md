@@ -51,9 +51,14 @@ in your catalogue, so I submitted it as a suggested game when I created the
 page. The mod is "awaiting approval" for that reason. If both can be looked at
 together, all the better.
 
-I am happy to answer any question, or to ship the mod without the GodotSteam
-files and have users download them from the official release themselves, if
-that helps.
+Both DLLs ship inside the download on purpose: the mod is for players, not for
+developers, and asking them to fetch a library themselves and place it in the
+right folder would make a simple mod hard to install. They are the unmodified
+files from the official GodotSteam release, and the checksum above covers the
+whole archive.
+
+I am happy to answer any question or to provide anything else that helps the
+review.
 
 Thanks,
 AleDev11
