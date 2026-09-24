@@ -3,6 +3,8 @@
 # a move / rotate gizmo on the tool and a panel on the right.
 #
 #   1-6              tool (pala, horca, escoba, palita, detector, aspiradora)
+#   7                the wheelbarrow, pushed with both hands
+#   G                on 7: move the barrow / the left grip / the right grip
 #   W / E            gizmo: move / rotate. left drag an arrow or a ring
 #   Ctrl + drag      snap to 1 cm / 5 degrees, Esc cancels the drag
 #   right drag       orbit        middle drag   pan        wheel   zoom
@@ -16,10 +18,18 @@
 # tool_poses.cfg next to mp_avatar.gd. Tools with no entry keep the automatic
 # fit, and tools with no crouch pose use the standing one when crouched. dev/tool_poser.bat starts the game with this as a second autoload
 # (ToolPoser) and puts override.cfg back when you close it.
+#
+# The wheelbarrow (7) is placed from the farmer's feet instead, same axes but
+# no pitch, and the hands reach for its two handle grips. The grips are found
+# on the model; the white dots move them if that's off (click one, or G),
+# in the barrow's own space. Saved as [wheelbarrow].
 extends Node
 
 const OUT_FILE := "tool_poses.cfg"
-const TOOLS := {1: "Pala", 2: "Horca", 3: "Escoba", 4: "Palita", 5: "Detector", 6: "Aspiradora"}
+const TOOLS := {1: "Pala", 2: "Horca", 3: "Escoba", 4: "Palita", 5: "Detector", 6: "Aspiradora",
+	7: "Carretilla"}
+const BARROW := 7
+const GRIPS := ["Carretilla", "Agarre izq.", "Agarre der."]
 const MOVES := [0.0, 1.3, 4.2]
 const MOVE_NAMES := ["Quieto", "Andar", "Correr"]
 # field -> [label, min, max, step]
@@ -54,6 +64,8 @@ var msg := ""
 var _yaw := 0.0
 var _logged := -1
 var _pending := {}  # pose from a drag, applied once per frame
+var grip := -1  # on the barrow: -1 moves the barrow, 0 / 1 the left / right grip
+var _barrow: Node3D
 
 # camera
 var _target := HOME_TARGET
@@ -68,6 +80,7 @@ var _gizmo: Node3D
 var _arrows: Node3D
 var _rings: Node3D
 var _palm: MeshInstance3D
+var _dots := []  # the two grips
 var _mats := []
 var _hover := -1
 var _drag := -1
@@ -87,6 +100,9 @@ var _pitch_sl: HSlider
 var _pitch_lbl: Label
 var _crouch_cb: CheckBox
 var _stance_btns := []
+var _stance_row: Control
+var _grip_row: Control
+var _grip_btns := []
 var _drop_crouch: Button
 var _turn_cb: CheckBox
 var _state: Label
@@ -125,7 +141,7 @@ func _process(d: float) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if turntable:
 		_yaw = wrapf(_yaw + d * 0.6, -PI, PI)
-	av.set_target(Vector3.ZERO, _yaw, pitch, tool, 1.0 if crouch else 0.0, MOVES[move])
+	av.set_target(Vector3.ZERO, _yaw, pitch, _av_tool(), 1.0 if crouch else 0.0, MOVES[move])
 	if _logged != tool:
 		_log_tool()
 		_sync_ui()
@@ -164,6 +180,10 @@ func open_stage() -> void:
 	# set_target waits for _ready (see _process), before it there is no hand
 	# to hang the tool on
 	stage.add_child(av)
+	_barrow = av.barrow_model()
+	if _barrow != null:
+		stage.add_child(_barrow)
+	_show_barrow()
 	_build_gizmo(stage)
 	var err := get_tree().change_scene_to_node(stage)
 	_build_ui()
@@ -273,6 +293,14 @@ func _build_gizmo(stage: Node3D) -> void:
 	palm.height = 1.0
 	_palm = _part(palm, _flat(Color(1, 0.9, 0.2, 0.9)), Vector3.ZERO)
 	stage.add_child(_palm)
+	# the barrow's handle grips, clicked to move them
+	for i in 2:
+		var dot_mesh := SphereMesh.new()
+		dot_mesh.radius = 0.5
+		dot_mesh.height = 1.0
+		var d := _part(dot_mesh, _flat(Color.WHITE), Vector3.ZERO)
+		stage.add_child(d)
+		_dots.append(d)
 
 
 func _part(m: Mesh, mat: Material, pos: Vector3) -> MeshInstance3D:
@@ -315,6 +343,8 @@ func _const(name: String) -> Variant:
 # the pose being edited: standing, or crouched (which starts as a copy of
 # the standing one until it gets its own)
 func current_pose() -> Dictionary:
+	if tool == BARROW:
+		return _barrow_edit()
 	var st := _stand_pose()
 	if not edit_crouch:
 		return st
@@ -343,6 +373,9 @@ func set_pose(p: Dictionary) -> void:
 	p.pos = p.pos.snappedf(0.001)
 	p.rot = Vector3(_wrap(p.rot.x), _wrap(p.rot.y), _wrap(p.rot.z)).snappedf(0.1)
 	p.length = clampf(snappedf(p.length, 0.005), 0.1, 2.5)
+	if tool == BARROW:
+		_set_barrow(p)
+		return
 	var saved: Dictionary = av.tool_pose(tool)
 	var full: Dictionary
 	if edit_crouch:
@@ -361,11 +394,71 @@ func has_crouch_pose() -> bool:
 	return av.tool_pose(tool).has("crouch")
 
 
+# ---------------------------------------------------------------- wheelbarrow
+
+# the tool the farmer holds: none on the barrow, both hands are on it
+func _av_tool() -> int:
+	return 0 if tool == BARROW else tool
+
+
+func _show_barrow() -> void:
+	if _barrow == null:
+		return
+	_barrow.visible = tool == BARROW
+	av.push_item(_barrow if tool == BARROW else null)
+
+
+# the barrow's pose, or the grip being moved (in the barrow's own space)
+func _barrow_edit() -> Dictionary:
+	var bp: Dictionary = av.barrow_pose()
+	if grip >= 0:
+		return {"pos": bp.grip_l if grip == 0 else bp.grip_r, "rot": Vector3.ZERO, "length": 1.0}
+	return {"pos": bp.pos, "rot": bp.rot, "length": 1.0}
+
+
+# only what was touched gets saved: the grips stay automatic until moved
+func _set_barrow(p: Dictionary) -> void:
+	var bp: Dictionary = av.barrow_pose(false)
+	if grip < 0:
+		bp.pos = p.pos
+		bp.rot = p.rot
+	else:
+		var full: Dictionary = av.barrow_pose()
+		bp.grip_l = full.grip_l
+		bp.grip_r = full.grip_r
+		bp["grip_l" if grip == 0 else "grip_r"] = p.pos
+	av.set_barrow_pose(bp)
+	dirty = true
+	_sync_ui()
+
+
+func has_grips() -> bool:
+	return av.barrow_pose(false).has("grip_l")
+
+
+func select_grip(i: int) -> void:
+	_end_drag()
+	grip = i
+	msg = ""
+	_sync_ui()
+
+
+# grips don't turn, they're just points
+func _turning() -> bool:
+	return rotating and not (tool == BARROW and grip >= 0)
+
+
+func _grip_world(i: int) -> Vector3:
+	var bp: Dictionary = av.barrow_pose()
+	return _barrow.global_transform * (bp.grip_l if i == 0 else bp.grip_r)
+
+
 # edit the standing pose or the crouch one. the crouch one shows the farmer
 # crouched so you see what you're doing
 func set_stance(crouched: bool) -> void:
 	_end_drag()
-	edit_crouch = crouched
+	# the barrow has no crouch pose, C just crouches the farmer
+	edit_crouch = crouched and tool != BARROW
 	crouch = crouched
 	msg = ""
 	_sync_ui()
@@ -383,6 +476,8 @@ func drop_crouch() -> void:
 
 
 func has_pose() -> bool:
+	if tool == BARROW:
+		return av.barrow_pose(false).has("pos")
 	return not av.tool_pose(tool).is_empty()
 
 
@@ -405,14 +500,25 @@ func select_tool(id: int) -> void:
 	_end_drag()
 	tool = id
 	msg = ""
+	if tool == BARROW:
+		edit_crouch = false
+	_show_barrow()
 	if av.is_node_ready():
-		av.set_target(Vector3.ZERO, _yaw, pitch, tool, 1.0 if crouch else 0.0, MOVES[move])
+		av.set_target(Vector3.ZERO, _yaw, pitch, _av_tool(), 1.0 if crouch else 0.0, MOVES[move])
 		_log_tool()
 	_sync_ui()
 
 
 func _log_tool() -> void:
 	_logged = tool
+	if tool == BARROW:
+		var model: String = _const("BARROW_MODEL")
+		print("[ToolPoser] tool 7 %s: %s loaded=%s pose=%s grips=%s" % [TOOLS[tool], model,
+			_barrow != null, "saved" if has_pose() else "default", av.barrow_pose()])
+		if _barrow == null:
+			msg = "No se pudo cargar el modelo de la carretilla (%s)" % model
+			_update_text()
+		return
 	var models: Dictionary = _const("TOOL_MODELS")
 	var path: String = models.get(tool, "")
 	var exists := path != "" and ResourceLoader.exists(path)
@@ -426,6 +532,20 @@ func _log_tool() -> void:
 
 func reset_tool() -> void:
 	_end_drag()
+	if tool == BARROW:
+		var bp: Dictionary = av.barrow_pose(false)
+		if grip < 0:
+			bp.erase("pos")
+			bp.erase("rot")
+			msg = "Carretilla en su pose por defecto"
+		else:
+			bp.erase("grip_l")
+			bp.erase("grip_r")
+			msg = "Agarres automáticos"
+		av.set_barrow_pose(bp)
+		dirty = true
+		_sync_ui()
+		return
 	av.set_tool_pose(tool, {})
 	dirty = true
 	msg = "%s vuelve a automático" % TOOLS[tool]
@@ -451,6 +571,12 @@ func save() -> void:
 			cfg.set_value(sec, "rot_crouch", p.crouch.rot)
 			cfg.set_value(sec, "length_crouch", p.crouch.length)
 			lines.append("    crouch pos=%s rot=%s length=%.3f" % [p.crouch.pos, p.crouch.rot, p.crouch.length])
+	var bp: Dictionary = av.barrow_pose(false)
+	if not bp.is_empty():
+		var bsec: String = _const("BARROW_SECTION")
+		for k in bp:
+			cfg.set_value(bsec, k, bp[k])
+		lines.append("[%s] %s" % [bsec, bp])
 	var path := ProjectSettings.globalize_path(save_dir.path_join(OUT_FILE))
 	var err := cfg.save(path)
 	if err != OK:
@@ -495,6 +621,11 @@ func reset_view() -> void:
 
 
 func frame_tool() -> void:
+	if tool == BARROW and _barrow != null:
+		# the farmer and the barrow, or up close on a grip
+		_target = _grip_world(grip) if grip >= 0 else (av.global_position + _barrow.global_position) * 0.5 + Vector3(0, 0.6, 0)
+		_dist = 1.2 if grip >= 0 else 3.4
+		return
 	var holder := _holder()
 	if holder == null:
 		return
@@ -553,16 +684,32 @@ func _update_gizmo() -> void:
 	if hand != null:
 		var ps := _m_per_px(hand.global_position) * 9.0
 		_palm.global_transform = Transform3D(Basis.from_scale(Vector3.ONE * ps), hand.global_position)
-	_gizmo.visible = holder != null and hand != null
+	var on_barrow := tool == BARROW and _barrow != null
+	for i in _dots.size():
+		var dot: MeshInstance3D = _dots[i]
+		dot.visible = on_barrow
+		if on_barrow:
+			var at := _grip_world(i)
+			var c := Color(1.0, 0.45, 0.1) if i == grip else Color(1, 1, 1, 0.85)
+			(dot.material_override as StandardMaterial3D).albedo_color = c
+			dot.global_transform = Transform3D(Basis.from_scale(Vector3.ONE * _m_per_px(at) * 12.0), at)
+	# the barrow moves in the farmer's axes, its grips in the barrow's
+	var o := Vector3.ZERO
+	var axes := Basis.IDENTITY
+	if on_barrow:
+		o = _barrow.global_position if grip < 0 else _grip_world(grip)
+		axes = (av.global_basis if grip < 0 else _barrow.global_basis).orthonormalized()
+	elif holder != null and hand != null:
+		o = holder.global_position
+		axes = hand.global_basis.orthonormalized()
+	_gizmo.visible = on_barrow or (holder != null and hand != null)
 	if not _gizmo.visible:
 		_hover = -1
 		return
-	var o := holder.global_position
 	var s := _m_per_px(o) * ARROW_PX
-	_gizmo.global_transform = Transform3D(
-		hand.global_basis.orthonormalized() * Basis.from_scale(Vector3.ONE * s), o)
-	_arrows.visible = not rotating
-	_rings.visible = rotating
+	_gizmo.global_transform = Transform3D(axes * Basis.from_scale(Vector3.ONE * s), o)
+	_arrows.visible = not _turning()
+	_rings.visible = _turning()
 	for a in 3:
 		var c: Color = AXIS_COLORS[a]
 		if a == _drag or (_drag < 0 and a == _hover):
@@ -592,7 +739,7 @@ func pick(m: Vector2) -> int:
 	var best_d := PICK_PX
 	for a in 3:
 		var d := INF
-		if not rotating:
+		if not _turning():
 			var p0 := cam.unproject_position(o + ax[a] * 0.12)
 			var p1 := cam.unproject_position(o + ax[a])
 			# pointing (nearly) straight at us, too twitchy to drag
@@ -617,10 +764,17 @@ func _seg_dist(p: Vector2, a: Vector2, b: Vector2) -> float:
 func _start_drag(m: Vector2) -> void:
 	var a := pick(m)
 	if a < 0:
+		# a click on a grip dot picks that grip
+		if tool == BARROW and _barrow != null:
+			for i in _dots.size():
+				var at := _grip_world(i)
+				if not cam.is_position_behind(at) and cam.unproject_position(at).distance_to(m) < PICK_PX * 1.5:
+					select_grip(i)
+					return
 		return
 	var o := _gizmo.global_position
 	var ax := _axes()
-	if not rotating:
+	if not _turning():
 		# mouse travel along the arrow on screen, over its pixels per metre
 		var p0 := cam.unproject_position(o)
 		var p1 := cam.unproject_position(o + ax[a])
@@ -654,7 +808,7 @@ func _drag_to(m: Vector2) -> void:
 	var amount := (m - _drag_from).dot(_drag_dir) / _drag_px
 	var snap := Input.is_key_pressed(KEY_CTRL)
 	var p := _drag_pose.duplicate()
-	if not rotating:
+	if not _turning():
 		if snap:
 			amount = snappedf(amount, 0.01)
 		var pos: Vector3 = p.pos
@@ -697,10 +851,15 @@ func _input(e: InputEvent) -> void:
 		return
 	var used := true
 	match k.keycode:
-		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6:
+		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7:
 			select_tool(k.keycode - KEY_0)
-		KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4, KEY_KP_5, KEY_KP_6:
+		KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4, KEY_KP_5, KEY_KP_6, KEY_KP_7:
 			select_tool(k.keycode - KEY_KP_0)
+		KEY_G:
+			# barrow -> left grip -> right grip -> barrow
+			used = tool == BARROW
+			if used:
+				select_grip((grip + 2) % 3 - 1)
 		KEY_W, KEY_E:
 			# flying while the right button is down
 			used = not _orbit
@@ -709,7 +868,7 @@ func _input(e: InputEvent) -> void:
 		KEY_F:
 			frame_tool()
 		KEY_C:
-			set_stance(not edit_crouch)
+			set_stance(not (crouch if tool == BARROW else edit_crouch))
 		KEY_R, KEY_HOME:
 			reset_view()
 		KEY_F9:
@@ -784,10 +943,11 @@ func _build_ui() -> void:
 	var help := _text(15)
 	help.text = "\n".join([
 		"Clic izq. en el gizmo: mover / rotar    Ctrl: a saltos    Esc: deshacer el arrastre",
-		"W: mover    E: rotar    C: pose de pie / agachado    1-6: herramienta    F9: guardar",
+		"W: mover    E: rotar    C: pose de pie / agachado    1-7: herramienta    F9: guardar",
 		"Clic der.: orbitar    Clic central: desplazar    Rueda: zoom",
 		"Clic der. + WASD / Q E: volar (Mayús: más rápido)    F: encuadrar    R: vista inicial",
 		"Ejes de la mano: X derecha (rojo), Y arriba (verde), Z atrás (azul)",
+		"Carretilla (7): ejes del granjero. G o clic en un punto blanco: mover un agarre",
 	])
 	help.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_MINSIZE, 16)
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
@@ -857,6 +1017,21 @@ func _build_ui() -> void:
 	_drop_crouch.tooltip_text = "Borra la pose de agachado, agachado usará la de pie"
 	_drop_crouch.pressed.connect(drop_crouch)
 	stance.add_child(_drop_crouch)
+	_stance_row = stance
+
+	# on the barrow, what the gizmo moves
+	var grips := HBoxContainer.new()
+	box.add_child(grips)
+	var gl := Label.new()
+	gl.text = "Mover (G):"
+	grips.add_child(gl)
+	var grip_group := ButtonGroup.new()
+	for i in GRIPS.size():
+		var btn := _button(GRIPS[i], grip_group)
+		btn.pressed.connect(select_grip.bind(i - 1))
+		grips.add_child(btn)
+		_grip_btns.append(btn)
+	_grip_row = grips
 
 	var grid := GridContainer.new()
 	grid.columns = 3
@@ -988,10 +1163,24 @@ func _sync_ui() -> void:
 		"rx": p.rot.x, "ry": p.rot.y, "rz": p.rot.z, "len": p.length}
 	# plain value sets so the spinbox text follows, the flag stops the loop
 	_syncing = true
+	# the barrow sits further out, has no length and its grips don't turn
+	var on_barrow := tool == BARROW
+	for f in _rows:
+		var spec: Array = FIELDS[f]
+		var wide: bool = on_barrow and f.begins_with("p")
+		_rows[f][0].min_value = spec[1] * (2.0 if wide else 1.0)
+		_rows[f][0].max_value = spec[2] * (2.0 if wide else 1.0)
+		var off: bool = on_barrow and (f == "len" or (grip >= 0 and f.begins_with("r")))
+		_rows[f][0].editable = not off
+		_rows[f][1].editable = not off
 	for f in _rows:
 		_rows[f][0].value = vals[f]
 		_rows[f][1].value = vals[f]
 	_syncing = false
+	_stance_row.visible = not on_barrow
+	_grip_row.visible = on_barrow
+	for i in _grip_btns.size():
+		_grip_btns[i].set_pressed_no_signal(i - 1 == grip)
 	for id in _tool_btns:
 		_tool_btns[id].set_pressed_no_signal(id == tool)
 	_mode_btns[0].set_pressed_no_signal(not rotating)
@@ -1010,6 +1199,17 @@ func _sync_ui() -> void:
 
 func _update_text() -> void:
 	if av == null or _state == null:
+		return
+	if tool == BARROW:
+		_state.text = "%d  %s  ·  %s  ·  agarres: %s%s%s" % [tool, TOOLS[tool],
+			"pose a mano" if has_pose() else "por defecto",
+			"a mano" if has_grips() else "automáticos",
+			"" if grip < 0 else "
+MOVIENDO EL %s" % GRIPS[grip + 1].to_upper(),
+			"" if _barrow != null else "
+¡modelo no encontrado!"]
+		_unsaved.visible = dirty
+		_msg.text = msg
 		return
 	var loaded := _holder() != null or not av.is_node_ready()
 	_state.text = "%d  %s  ·  %s  ·  agachado: %s%s%s" % [tool, TOOLS[tool],
