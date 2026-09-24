@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.7.0
 
 * Remote players stand straight when idle. The old idle clip had the hips
   twisted and left the feet where the last step put them, so the shoes

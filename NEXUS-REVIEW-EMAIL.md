@@ -20,8 +20,8 @@ two DLLs, so here is what they are and where they come from.
 Mod page: https://www.nexusmods.com/games/10302/mods/1
 Mod: Find The Needle Co-op Multiplayer
 Author: AleDev11
-File: FindTheNeedle_Multiplayer_v0.6.0.zip (1.5 MB)
-SHA256: B13B8890BEC85EB1D35C11A392A087D05329A62CE5CFFA3E656F302EFC91790D
+File: FindTheNeedle_Multiplayer_v0.7.0.zip (1.5 MB)
+SHA256: CF2C40C7B24B9B9B132AF9831355AA555F2626D8529E84F81104DAA65469DC37
 
 The mod is open source, so every file in the archive can be checked against the
 repository: https://github.com/AleDev11/FindTheNeedle-Coop-Mod
