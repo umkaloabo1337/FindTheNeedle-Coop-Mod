@@ -16,8 +16,8 @@ mod needs, so here is what is in the archive and where each binary comes from.
 Mod page: https://www.nexusmods.com/games/10302/mods/1
 Mod: Find The Needle Co-op Multiplayer
 Author: AleDev11
-File: FindTheNeedle_Multiplayer_v0.4.0.zip (1.4 MB)
-SHA256: 487F24E4342CA55F79F546868E6370A60AB6F369BA89A781844D80723F7EEBBC
+File: FindTheNeedle_Multiplayer_v0.5.0.zip (1.6 MB)
+SHA256: 675F317E0B0FFCCC46C4FC977B80E068B2E9FF5D01F17E117887EFE81A8195C2
 
 The mod is open source, so every file in the archive can be checked against the
 repository: https://github.com/AleDev11/FindTheNeedle-Coop-Mod
