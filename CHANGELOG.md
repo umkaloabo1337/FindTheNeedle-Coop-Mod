@@ -7,6 +7,9 @@
   stretched after walking.
 * Farmer height and crouch tuned in game so eyes meet at the camera height,
   standing and crouched. `dev/avatar_calib.gd` is the tool used for it.
+* You can see your own body when you look down during a session: headless,
+  a bit behind the camera, in your colour, with your shadow. Single player
+  is unchanged.
 
 ## v0.6.0
 

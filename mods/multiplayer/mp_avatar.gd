@@ -1,6 +1,7 @@
 # Remote player puppet: an animated farmer, a name tag and the tool they are
 # holding. Falls back to the old primitive figure if the model won't load.
 # Poses arrive ~20 times a second and are smoothed.
+# setup_local() turns it into our own headless body, seen when looking down.
 extends Node3D
 
 # the game's own msgids, so the label reads like the rest of its UI
@@ -31,6 +32,9 @@ const IDLE := "Idle_Neutral"  # plain "Idle" stands twisted and leaves the feet 
 const CROUCH_DROP := 0.63
 const CROUCH_LEAN := 0.35
 const TINTS := {"LightBlue": 0.25, "Red": 0.0}  # overalls, hat band
+# own body sits a bit behind the camera, more when crouched since it leans in
+const LOCAL_BACK := 0.25
+const LOCAL_CROUCH_BACK := 0.2
 
 var _target_pos := Vector3.ZERO
 var _target_yaw := 0.0
@@ -69,15 +73,31 @@ var _legs: Array = []  # [thigh, shin, foot, thigh len, shin len]
 static var _farmer: PackedScene
 static var _farmer_tried := false
 
+# own body only
+var _player: Node3D
+var _mp: Node
+
 
 func setup(pname: String, color: Color) -> void:
 	_name = pname
 	_color = color
 
 
+# our own body, follows the player every frame. no label and no tool,
+# the game draws its own hand
+func setup_local(player: Node3D, mp: Node) -> void:
+	_player = player
+	_mp = mp
+	visible = false
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+
+
 func _ready() -> void:
 	_body = Node3D.new()
 	add_child(_body)
+	if _mp != null:
+		_build_farmer()
+		return
 	if not _build_farmer():
 		_build_figure()
 
@@ -164,17 +184,12 @@ func _build_farmer() -> bool:
 	holder.add_child(model)
 	_body.add_child(holder)
 
-	# overalls and hat band in the player's colour
 	for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-		if mi.mesh == null:
-			continue
-		for i in mi.mesh.get_surface_count():
-			var mat := mi.mesh.surface_get_material(i) as BaseMaterial3D
-			if mat != null and TINTS.has(mat.resource_name):
-				var dyed := mat.duplicate() as BaseMaterial3D
-				dyed.albedo_color = _color.darkened(TINTS[mat.resource_name])
-				mi.set_surface_override_material(i, dyed)
+		if _mp != null and mi.name == "Farmer_Head":
+			# no head in our face, but it still shows in the shadow
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+	_dye()
 
 	for clip in [IDLE, "Walk", "Run"]:
 		if _anim.has_animation(clip):
@@ -187,6 +202,19 @@ func _build_farmer() -> bool:
 	_hand = Node3D.new()
 	add_child(_hand)
 	return true
+
+
+# overalls and hat band in the player's colour
+func _dye() -> void:
+	for mi: MeshInstance3D in _body.find_children("*", "MeshInstance3D", true, false):
+		if mi.mesh == null:
+			continue
+		for i in mi.mesh.get_surface_count():
+			var mat := mi.mesh.surface_get_material(i) as BaseMaterial3D
+			if mat != null and TINTS.has(mat.resource_name):
+				var dyed := mat.duplicate() as BaseMaterial3D
+				dyed.albedo_color = _color.darkened(TINTS[mat.resource_name])
+				mi.set_surface_override_material(i, dyed)
 
 
 func _play(clip: String, blend: float) -> void:
@@ -402,6 +430,9 @@ func set_target(pos: Vector3, yaw: float, pitch: float, tool: int, crouch: float
 
 
 func _process(delta: float) -> void:
+	if _mp != null:
+		_follow_player(delta)
+		return
 	if not _has_target:
 		return
 	var k := 1.0 - exp(-14.0 * delta)
@@ -420,6 +451,26 @@ func _process(delta: float) -> void:
 		_animate_figure(delta, k)
 	var tool_txt: String = TOOL_NAMES[_tool] if _tool >= 0 and _tool < TOOL_NAMES.size() else ""
 	_label.text = _name if tool_txt == "" or _tool == 0 else "%s\n[%s]" % [_name, tr(tool_txt)]
+
+
+func _follow_player(delta: float) -> void:
+	visible = _skel != null and is_instance_valid(_player) and _mp.active()
+	if not visible:
+		return
+	var col: Color = _mp.player_color(multiplayer.get_unique_id())
+	if col != _color:
+		_color = col
+		_dye()
+	global_position = _player.get_global_transform_interpolated().origin
+	rotation = Vector3(0.0, _player.global_rotation.y, 0.0)
+	var p: Variant = _player.get("_pitch")
+	_pitch = float(p) if p != null else 0.0
+	_crouch = float(_player.call("crouch_amount")) if _player.has_method("crouch_amount") else 0.0
+	_crouch_now = _crouch
+	_body.position.z = LOCAL_BACK + LOCAL_CROUCH_BACK * _crouch
+	var v: Variant = _player.get("velocity")
+	_moving = (v * Vector3(1, 0, 1)).length() if v is Vector3 else 0.0
+	_animate_farmer(delta)
 
 
 func _set_tool_model(tool: int) -> void:
