@@ -6,22 +6,22 @@ const COL_TITLE := Color(1.0, 0.86, 0.34)
 const COL_TEXT := Color(0.95, 0.96, 0.99)
 const COL_DIM := Color(0.7, 0.73, 0.79)
 const COL_BG := Color(0.03, 0.04, 0.06, 0.92)
-const COL_PLATE := Color(0.04, 0.05, 0.07, 0.88)  # the game's own HUD plate
+const COL_PLATE := Color(0.03, 0.035, 0.045, 0.82)  # the game's HUD cards
+const COL_CARD := Color(0.035, 0.045, 0.065, 0.97)  # the lobby's save slot card
+const COL_FIELD := Color(0.03, 0.04, 0.06, 0.72)  # the lobby's rename field
 const COL_OFF := Color(0.44, 0.46, 0.5)  # the menu's "not yet" grey
-const COL_DONE := Color(0.55, 0.78, 0.55)
+const COL_DONE := Color(0.72, 0.93, 0.56)  # the mission card's "done" green
 const COL_BAR := Color(0.84, 0.66, 0.28)  # the loading screen's bar
 const COL_BAR_BACK := Color(1.0, 1.0, 1.0, 0.08)
-const CARD_RADIUS := 6
 const FEED_SECONDS := 7.0
 const FEED_MAX := 6
-const FEED_IN := 0.18
-const FEED_OUT := 1.1
-const WAIT_W := 420.0
+const FEED_IN := 0.25  # the HUD cards fade 0.25 s, linear
+const FEED_OUT := 1.0
+const WAIT_W := 372.0  # same width as the lobby's slot card
 const WAIT_TICK := 0.15  # the hand-off has no signals, so poll for its state
 const WAIT_DONE := 5.0  # how long "you are in" stays up before it gets out of the way
+const WAIT_BREATH := 2.8  # the current step's edge breathes like the mission card
 const MARK_DONE := "✓"
-const MARK_NOW := "▶"
-const MARK_WAIT := "·"
 
 # What a guest is waiting for, in the order it happens.
 enum Step { CONNECT, SAVE, WORLD, LOADING, INSIDE }
@@ -55,6 +55,7 @@ var _resync_btn: Button
 var _ips_label: Label
 
 var _feed: VBoxContainer
+var _chat_box: PanelContainer
 var _chat_edit: LineEdit
 var _roster: RichTextLabel
 var _roster_on := false
@@ -73,6 +74,7 @@ var _wait_hint: Label
 var _wait_bar: ProgressBar
 var _wait_marks: Array[Label] = []
 var _wait_names: Array[Label] = []
+var _wait_rows: Array[StyleBoxFlat] = []
 var _wait_sig := ""  # only rewrite the card when something actually changed
 var _wait_now := -1
 var _wait_clock := 0.0
@@ -96,16 +98,46 @@ func _ready() -> void:
 
 var _font_cache: Font = null
 var _font_tried := false
+var _ui_font_cls: Script = null
+var _ui_font_tried := false
 
 
 # the game's bold UI font, if its UiFont helper is there
 func _font() -> Font:
 	if not _font_tried:
 		_font_tried = true
-		var cls := _global_class("UiFont")
+		var cls := _ui_font()
 		if cls != null:
 			_font_cache = cls.call("bold")
 	return _font_cache
+
+
+func _ui_font() -> Script:
+	if not _ui_font_tried:
+		_ui_font_tried = true
+		_ui_font_cls = _global_class("UiFont")
+	return _ui_font_cls
+
+
+# a label the way the game does every one of its own: its font, regular or
+# bold, and a thin black outline
+func _style(l: Label, size: int, col: Color, outline := 4, heavy := false) -> void:
+	var cls := _ui_font()
+	if cls != null:
+		cls.call("style", l, size, col, outline, heavy)
+		return
+	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_color_override("font_color", col)
+	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	l.add_theme_constant_override("outline_size", outline)
+
+
+func _styled(text: String, size: int, col: Color, outline := 4, heavy := false) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_style(l, size, col, outline, heavy)
+	return l
 
 
 func _global_class(n: String) -> Script:
@@ -132,54 +164,49 @@ func _label(text: String, size := 18, col := COL_TEXT, wrap := false) -> Label:
 	return l
 
 
-# the game's font on a small label too: HUD cards use it at every size
-func _use_font(l: Label) -> void:
-	var f := _font()
-	if f != null:
-		l.add_theme_font_override("font", f)
-
-
-# The game's HUD plate: near-black, a little see-through, with a coloured edge
-# down the left so a card reads as "who" at a glance.
-func _plate(accent: Color, mx := 14.0, my := 10.0) -> StyleBoxFlat:
+# The game's HUD card: near-black, a little see-through, square, no shadow,
+# with a coloured edge down the left so a card reads as "who" at a glance.
+func _plate(accent: Color, mx := 12.0, my := 8.0) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = COL_PLATE
 	sb.border_color = accent
-	sb.border_width_left = 4
-	sb.set_corner_radius_all(CARD_RADIUS)
+	sb.border_width_left = 3
 	sb.content_margin_left = mx
 	sb.content_margin_right = mx
 	sb.content_margin_top = my
-	sb.content_margin_bottom = my
-	sb.shadow_color = Color(0, 0, 0, 0.35)
-	sb.shadow_size = 6
+	sb.content_margin_bottom = my + 1.0
 	return sb
 
 
-func _dot(col: Color) -> Control:
-	var p := Panel.new()
-	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	p.custom_minimum_size = Vector2(10, 10)
-	p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+# the lobby's save slot card: a gold hairline all round and a soft shadow
+func _card() -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = col
-	sb.set_corner_radius_all(5)
-	p.add_theme_stylebox_override("panel", sb)
-	return p
+	sb.bg_color = COL_CARD
+	sb.set_border_width_all(1)
+	sb.border_color = Color(COL_TITLE, 0.55)
+	sb.shadow_color = Color(0, 0, 0, 0.55)
+	sb.shadow_size = 14
+	sb.content_margin_left = 22
+	sb.content_margin_right = 22
+	sb.content_margin_top = 18
+	sb.content_margin_bottom = 18
+	return sb
 
 
-# thin gold on a faint track, like the game's own loading bar
-func _style_bar(bar: ProgressBar) -> void:
+# thin gold on a faint track, like the game's own loading bar (square ends on
+# the guest card, where it sits next to the lobby's square boxes)
+func _style_bar(bar: ProgressBar, square := false) -> void:
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar.show_percentage = false
 	bar.min_value = 0.0
 	bar.max_value = 100.0
+	var r := 0 if square else 3
 	var back := StyleBoxFlat.new()
 	back.bg_color = COL_BAR_BACK
-	back.set_corner_radius_all(3)
+	back.set_corner_radius_all(r)
 	var fill := StyleBoxFlat.new()
 	fill.bg_color = COL_BAR
-	fill.set_corner_radius_all(3)
+	fill.set_corner_radius_all(r)
 	bar.add_theme_stylebox_override("background", back)
 	bar.add_theme_stylebox_override("fill", fill)
 
@@ -372,8 +399,8 @@ func _build_feed() -> void:
 	_feed.anchor_right = 0.5
 	_feed.anchor_top = 1.0
 	_feed.anchor_bottom = 1.0
-	_feed.offset_top = -420
-	_feed.offset_bottom = -200
+	_feed.offset_top = -432
+	_feed.offset_bottom = -212
 	_feed.offset_left = -280
 	_feed.offset_right = 280
 
@@ -396,32 +423,95 @@ func _build_roster() -> void:
 	add_child(_roster)
 
 
+# Looks like the lobby's rename field: dark, square, a gold hairline, with the
+# game's own Enter key art in front. Sits just above the hotbar.
 func _build_chat() -> void:
+	_chat_box = PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = COL_FIELD
+	sb.set_border_width_all(1)
+	sb.border_color = COL_TITLE
+	sb.content_margin_left = 14
+	sb.content_margin_right = 18
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 7
+	_chat_box.add_theme_stylebox_override("panel", sb)
+	_chat_box.anchor_left = 0.5
+	_chat_box.anchor_right = 0.5
+	_chat_box.anchor_top = 1.0
+	_chat_box.anchor_bottom = 1.0
+	_chat_box.offset_left = -360
+	_chat_box.offset_right = 360
+	_chat_box.offset_top = -206
+	_chat_box.offset_bottom = -162
+	_chat_box.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_chat_box.visible = false
+	add_child(_chat_box)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	_chat_box.add_child(row)
+	row.add_child(_key_cap("enter", "ENTER"))
+
 	_chat_edit = LineEdit.new()
 	_chat_edit.placeholder_text = mp.t("chat_hint")
-	_chat_edit.anchor_left = 0.5
-	_chat_edit.anchor_right = 0.5
-	_chat_edit.anchor_top = 1.0
-	_chat_edit.anchor_bottom = 1.0
-	_chat_edit.offset_left = -360
-	_chat_edit.offset_right = 360
-	_chat_edit.offset_top = -190
-	_chat_edit.offset_bottom = -150
+	_chat_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_chat_edit.max_length = 200
-	_chat_edit.visible = false
-	_chat_edit.add_theme_font_size_override("font_size", 18)
+	_chat_edit.context_menu_enabled = false
+	# the box above is the frame, the field itself draws nothing
+	for st in ["normal", "focus", "read_only"]:
+		_chat_edit.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+	var cls := _ui_font()
+	if cls != null:
+		_chat_edit.add_theme_font_override("font", cls.call("regular"))
+	_chat_edit.add_theme_font_size_override("font_size", 20)
+	_chat_edit.add_theme_color_override("font_color", COL_TEXT)
+	_chat_edit.add_theme_color_override("font_placeholder_color", Color(COL_DIM, 0.7))
+	_chat_edit.add_theme_color_override("caret_color", COL_TITLE)
 	_chat_edit.text_submitted.connect(_on_chat_submit)
-	add_child(_chat_edit)
+	row.add_child(_chat_edit)
+
+
+# A key the way the game's hints draw it: its own keycap art when there is
+# one, a small dark chip with the key name otherwise.
+func _key_cap(key: String, fallback: String) -> Control:
+	var icons := _global_class("InputIcons")
+	var tex: Variant = icons.call("named", key) if icons != null else null
+	if tex is Texture2D:
+		var r := TextureRect.new()
+		r.texture = tex
+		r.custom_minimum_size = Vector2(34, 30)
+		r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		r.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		r.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		r.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return r
+	var chip := PanelContainer.new()
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0.55)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(1, 1, 1, 0.2)
+	sb.content_margin_left = 7
+	sb.content_margin_right = 7
+	sb.content_margin_top = 3
+	sb.content_margin_bottom = 3
+	chip.add_theme_stylebox_override("panel", sb)
+	chip.add_child(_styled(fallback, 17, Color(0.94, 0.96, 1.0), 0, true))
+	return chip
 
 
 # A guest who accepts an invite has nothing to press and nothing to look at
 # while the host picks a save, so spell out every step of the hand-off. Right
 # hand side, vertically centred: clear of the menu column and of the hotbar.
+# It shows over the title screen, so it reads like the lobby's slot card.
 func _build_wait() -> void:
 	_wait = PanelContainer.new()
 	_wait.visible = false
 	_wait.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_wait.add_theme_stylebox_override("panel", _plate(COL_TITLE, 20.0, 16.0))
+	_wait.add_theme_stylebox_override("panel", _card())
 	_wait.anchor_left = 1.0
 	_wait.anchor_right = 1.0
 	_wait.anchor_top = 0.5
@@ -433,47 +523,57 @@ func _build_wait() -> void:
 
 	var v := VBoxContainer.new()
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_theme_constant_override("separation", 8)
+	v.add_theme_constant_override("separation", 10)
 	_wait.add_child(v)
 
-	_wait_title = _label(mp.t("wait_title"), 22, COL_TITLE)
+	_wait_title = _styled(mp.t("wait_title"), 21, COL_TITLE, 5, true)
 	v.add_child(_wait_title)
-	_wait_sub = _label("", 14, COL_DIM)
-	_use_font(_wait_sub)
+	_wait_sub = _styled("", 16, COL_DIM)
 	v.add_child(_wait_sub)
 
 	var rows := VBoxContainer.new()
 	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rows.add_theme_constant_override("separation", 5)
+	rows.add_theme_constant_override("separation", 2)
 	v.add_child(rows)
 	for i in Step.size():
+		# every row has the edge, only the current one shows it
+		var box := PanelContainer.new()
+		box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0, 0, 0, 0)
+		sb.border_color = Color(COL_TITLE, 0)
+		sb.border_width_left = 3
+		sb.content_margin_left = 10
+		sb.content_margin_right = 8
+		sb.content_margin_top = 3
+		sb.content_margin_bottom = 3
+		box.add_theme_stylebox_override("panel", sb)
 		var row := HBoxContainer.new()
 		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_theme_constant_override("separation", 8)
-		var mark := _label(MARK_WAIT, 16, COL_OFF)
-		mark.custom_minimum_size.x = 16
+		box.add_child(row)
+		var mark := _styled("", 16, COL_DONE)
+		mark.custom_minimum_size.x = 14
 		mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		_use_font(mark)
 		# the row has a real width here, so wrapping behaves
-		var name_l := _label("", 16, COL_OFF)
+		var name_l := _styled("", 16, COL_OFF)
 		name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_use_font(name_l)
 		row.add_child(mark)
 		row.add_child(name_l)
-		rows.add_child(row)
+		rows.add_child(box)
 		_wait_marks.append(mark)
 		_wait_names.append(name_l)
+		_wait_rows.append(sb)
 
 	_wait_bar = ProgressBar.new()
-	_wait_bar.custom_minimum_size = Vector2(0, 8)
+	_wait_bar.custom_minimum_size = Vector2(0, 6)
 	_wait_bar.visible = false
-	_style_bar(_wait_bar)
+	_style_bar(_wait_bar, true)
 	v.add_child(_wait_bar)
 
-	_wait_hint = _label("", 15, COL_DIM)
+	_wait_hint = _styled("", 16, COL_DIM)
 	_wait_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_use_font(_wait_hint)
 	v.add_child(_wait_hint)
 
 
@@ -483,7 +583,7 @@ func _input(event: InputEvent) -> void:
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
 	var k: int = event.keycode
-	if _chat_edit.visible:
+	if _chat_box.visible:
 		if k == KEY_ESCAPE:
 			_close_chat()
 			get_viewport().set_input_as_handled()
@@ -612,7 +712,7 @@ func close_panel() -> void:
 
 
 func _open_chat() -> void:
-	_chat_edit.visible = true
+	_chat_box.visible = true
 	_chat_edit.text = ""
 	_release_mouse()
 	_chat_edit.grab_focus.call_deferred()
@@ -620,7 +720,7 @@ func _open_chat() -> void:
 
 func _close_chat() -> void:
 	_chat_edit.release_focus()
-	_chat_edit.visible = false
+	_chat_box.visible = false
 	_restore_mouse()
 
 
@@ -679,8 +779,9 @@ func chat_line(who: String, col: Color, text: String) -> void:
 	_push_feed(_feed_card(col, mp.t("chat_name") % who, text))
 
 
-# One notification: dark plate, the player's colour as a dot and as the edge,
-# the game's font. Cards stack upwards and age out on their own.
+# One notification: the game's HUD card, the player's colour down the edge, the
+# name in bold and the message in the regular face. Cards stack upwards and
+# age out on their own.
 func _feed_card(accent: Color, who: String, text: String) -> PanelContainer:
 	var card := PanelContainer.new()
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -688,22 +789,19 @@ func _feed_card(accent: Color, who: String, text: String) -> PanelContainer:
 	card.modulate.a = 0.0
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_theme_constant_override("separation", 9)
+	row.add_theme_constant_override("separation", 8)
 	card.add_child(row)
-	row.add_child(_dot(accent))
 	if who != "":
-		var n := _label(who, 17, accent)
-		_use_font(n)
+		var n := _styled(who, 17, accent, 4, true)
+		n.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 		row.add_child(n)
-	var msg := _label(text, 17, COL_TEXT)
+	var msg := _styled(text, 17, COL_TEXT)
 	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	msg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_use_font(msg)
 	row.add_child(msg)
-	var badge := _label("", 14, COL_DIM)
+	var badge := _styled("", 13, COL_DIM, 3, true)
 	badge.visible = false
 	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_use_font(badge)
 	row.add_child(badge)
 	card.set_meta("badge", badge)
 	return card
@@ -833,19 +931,18 @@ func _write_wait(step: int, pct: int, host: String) -> void:
 			row.text = mp.t("wait_world_pct") % pct  # the only step with a number
 		else:
 			row.text = mp.t(names[i])
-		mark.modulate.a = 1.0
-		if i < step:
-			mark.text = MARK_DONE
-			mark.add_theme_color_override("font_color", COL_DONE)
-			row.add_theme_color_override("font_color", COL_DIM)
-		elif i == step:
-			mark.text = MARK_NOW
-			mark.add_theme_color_override("font_color", COL_TITLE)
-			row.add_theme_color_override("font_color", COL_TEXT)
+		var sb := _wait_rows[i]
+		# done: dim with a green tick. now: bold, with the lobby's gold edge.
+		# still to come: the menu's "not yet" grey
+		mark.text = MARK_DONE if i < step else ""
+		if i == step:
+			_style(row, 16, COL_TEXT, 4, true)
+			sb.bg_color = Color(0.02, 0.03, 0.05, 0.3)
+			sb.border_color = COL_TITLE
 		else:
-			mark.text = MARK_WAIT
-			mark.add_theme_color_override("font_color", COL_OFF)
-			row.add_theme_color_override("font_color", COL_OFF)
+			_style(row, 16, COL_DIM if i < step else COL_OFF)
+			sb.bg_color = Color(0, 0, 0, 0)
+			sb.border_color = Color(COL_TITLE, 0)
 	var hints := PackedStringArray(["wait_hint_connect", "wait_hint_save", "wait_hint_world", "wait_hint_load", "wait_hint_in"])
 	_wait_hint.text = mp.t(hints[step])
 	_wait_bar.visible = step == Step.WORLD and pct >= 0
@@ -853,12 +950,14 @@ func _write_wait(step: int, pct: int, host: String) -> void:
 	_wait_now = step
 
 
-# the step we are on breathes, so a slow transfer still looks alive
+# the step we are on breathes like the game's mission card edge, so a slow
+# transfer still looks alive
 func _pulse_wait(delta: float) -> void:
-	if not _wait.visible or _wait_now < 0 or _wait_now >= _wait_marks.size() or _wait_now == Step.INSIDE:
+	if not _wait.visible or _wait_now < 0 or _wait_now >= _wait_rows.size() or _wait_now == Step.INSIDE:
 		return
 	_wait_t += delta
-	_wait_marks[_wait_now].modulate.a = 0.55 + 0.45 * absf(sin(TAU * _wait_t * 0.55))
+	var a := 0.675 + 0.275 * sin(TAU * _wait_t / WAIT_BREATH)
+	_wait_rows[_wait_now].border_color = Color(COL_TITLE, a)
 
 
 func _clock() -> float:
