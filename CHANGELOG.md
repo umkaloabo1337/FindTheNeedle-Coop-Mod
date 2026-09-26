@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+* The chat box, the chat and notification cards and the guest's "joining"
+  card now look like the game's own UI. The chat box is framed like the
+  lobby's rename field, with the game's Enter key in front, and sits clear of
+  the hotbar. Cards are the square HUD cards, with the name in bold and the
+  message in the regular face. The joining card is the lobby's save slot card
+  with the current step marked by a gold edge. The multiplayer panel is
+  unchanged.
+
 ## v0.14.1
 
 * No more flood of "Peer is only set up to use 4 channels" warnings. The
