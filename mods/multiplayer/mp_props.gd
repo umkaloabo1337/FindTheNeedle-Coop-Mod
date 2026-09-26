@@ -379,7 +379,9 @@ func _move_tick() -> void:
 	var xfs: Array = []
 	for id in _by_id:
 		var it: Variant = _by_id[id]
-		if it == null or not is_instance_valid(it) or not _mine(id):
+		# out of the tree (mid-reparent) it reads as the origin and would
+		# teleport the copy on the other side
+		if it == null or not is_instance_valid(it) or not _mine(id) or not it.is_inside_tree():
 			continue
 		var xf: Transform3D = it.global_transform
 		var last: Variant = _sent.get(id)

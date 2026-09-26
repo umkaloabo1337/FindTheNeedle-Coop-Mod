@@ -230,7 +230,7 @@ func _watchers() -> Array:
 		return out
 	for id in ws.avatars:
 		var a: Variant = ws.avatars[id]
-		if a != null and is_instance_valid(a):
+		if a != null and is_instance_valid(a) and (a as Node3D).is_inside_tree():
 			out.append((a as Node3D).global_position)
 	return out
 
@@ -251,7 +251,7 @@ func _send_poses() -> void:
 		if SETTINGS_ONLY.has(_group.get(key, "")):
 			continue
 		var n: Variant = _nodes[key]
-		if n == null or not is_instance_valid(n):
+		if n == null or not is_instance_valid(n) or not (n as Node3D).is_inside_tree():
 			continue
 		if not _near((n as Node3D).global_position, watchers):
 			continue

@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.14.0"
+const VERSION := "0.14.1"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8
 const WORLD_CHUNK := 60000
@@ -71,7 +71,8 @@ func _ready() -> void:
 			var test: Node = test_script.new()
 			test.mp = self
 			add_child(test)
-	for f in ["mp_world.gd", "mp_avatar.gd", "mp_i18n.gd"]:
+	for f in ["mp_world.gd", "mp_avatar.gd", "mp_i18n.gd", "mp_props.gd",
+			"mp_machines.gd", "mp_strands.gd"]:
 		var s: Script = load(base_dir + "/" + f)
 		if s == null or not s.can_instantiate():
 			push_error("[MPMod] %s failed to compile" % f)
@@ -593,37 +594,37 @@ func _rx_hay(idx: PackedInt32Array, vals: PackedFloat32Array) -> void:
 		world_sync.on_hay(idx, vals)
 
 
-@rpc("any_peer", "call_remote", "reliable", 4)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_builds(adds: Array, removes: Array) -> void:
 	if world_sync != null:
 		world_sync.on_builds(adds, removes)
 
 
-@rpc("any_peer", "call_remote", "reliable", 5)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_state_delta(seq: int, delta: Dictionary) -> void:
 	if is_host and world_sync != null:
 		world_sync.on_state_delta(multiplayer.get_remote_sender_id(), seq, delta)
 
 
-@rpc("authority", "call_remote", "reliable", 5)
+@rpc("authority", "call_remote", "reliable", 0)
 func _rx_state_snap(ack: int, snap: Dictionary) -> void:
 	if world_sync != null:
 		world_sync.on_state_snap(ack, snap)
 
 
-@rpc("any_peer", "call_remote", "reliable", 5)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_tech(id: String, rank: int) -> void:
 	if world_sync != null:
 		world_sync.on_tech(id, rank)
 
 
-@rpc("authority", "call_remote", "reliable", 6)
+@rpc("authority", "call_remote", "reliable", 0)
 func _rx_full_sync(heights: PackedFloat32Array, builds: Array, tech: Dictionary, needles: Array) -> void:
 	if world_sync != null:
 		world_sync.on_full_sync(heights, builds, tech, needles)
 
 
-@rpc("any_peer", "call_remote", "reliable", 5)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_new_pile_request() -> void:
 	if is_host and world_sync != null:
 		world_sync.host_new_pile_for_client(multiplayer.get_remote_sender_id())
@@ -635,7 +636,7 @@ func _rx_needle(kind: String, idx: int, pos: Vector3) -> void:
 		world_sync.on_needle(kind, idx, pos)
 
 
-@rpc("any_peer", "call_remote", "reliable", 5)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_event(kind: String, data: Dictionary) -> void:
 	if world_sync != null:
 		world_sync.on_event(multiplayer.get_remote_sender_id(), kind, data)
@@ -649,70 +650,70 @@ func _props() -> Node:
 	return world_sync.props_sync
 
 
-@rpc("any_peer", "call_remote", "reliable", 7)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_add(id: int, item_id: String, xf: Transform3D, state: Dictionary) -> void:
 	var p := _props()
 	if p != null:
 		p.on_add(multiplayer.get_remote_sender_id(), id, item_id, xf, state)
 
 
-@rpc("any_peer", "call_remote", "reliable", 7)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_del(ids: PackedInt64Array) -> void:
 	var p := _props()
 	if p != null:
 		p.on_del(ids)
 
 
-@rpc("any_peer", "call_remote", "unreliable_ordered", 8)
+@rpc("any_peer", "call_remote", "unreliable_ordered", 0)
 func _rx_prop_move(ids: PackedInt64Array, xfs: Array) -> void:
 	var p := _props()
 	if p != null:
 		p.on_move(multiplayer.get_remote_sender_id(), ids, xfs)
 
 
-@rpc("any_peer", "call_remote", "reliable", 7)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_state(ids: PackedInt64Array, states: Array) -> void:
 	var p := _props()
 	if p != null:
 		p.on_state(multiplayer.get_remote_sender_id(), ids, states)
 
 
-@rpc("any_peer", "call_remote", "reliable", 7)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_claim(id: int) -> void:
 	var p := _props()
 	if p != null:
 		p.on_claim(multiplayer.get_remote_sender_id(), id)
 
 
-@rpc("any_peer", "call_remote", "reliable", 7)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_want(ids: PackedInt64Array) -> void:
 	var p := _props()
 	if p != null:
 		p.on_want(multiplayer.get_remote_sender_id(), ids)
 
 
-@rpc("any_peer", "call_remote", "reliable", 7)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_census(ids: PackedInt64Array) -> void:
 	var p := _props()
 	if p != null:
 		p.on_census(multiplayer.get_remote_sender_id(), ids)
 
 
-@rpc("authority", "call_remote", "reliable", 7)
+@rpc("authority", "call_remote", "reliable", 0)
 func _rx_prop_reset(first: bool, ids: PackedInt64Array, owners: PackedInt32Array, entries: Array) -> void:
 	var p := _props()
 	if p != null:
 		p.on_reset(first, ids, owners, entries)
 
 
-@rpc("authority", "call_remote", "reliable", 7)
+@rpc("authority", "call_remote", "reliable", 0)
 func _rx_prop_reset_end() -> void:
 	var p := _props()
 	if p != null:
 		p.on_reset_end()
 
 
-@rpc("authority", "call_remote", "reliable", 9)
+@rpc("authority", "call_remote", "reliable", 0)
 func _rx_belts(packed: PackedByteArray, raw_size: int) -> void:
 	if world_sync == null or world_sync.belts_sync == null:
 		return
@@ -721,14 +722,14 @@ func _rx_belts(packed: PackedByteArray, raw_size: int) -> void:
 
 # ---------------------------------------------------------------- machines
 
-@rpc("authority", "call_remote", "unreliable_ordered", 10)
+@rpc("authority", "call_remote", "unreliable_ordered", 0)
 func _rx_machines(packed: PackedByteArray, raw_size: int) -> void:
 	if world_sync == null or world_sync.machines_sync == null:
 		return
 	world_sync.machines_sync.on_poses(packed, raw_size)
 
 
-@rpc("authority", "call_remote", "reliable", 10)
+@rpc("authority", "call_remote", "reliable", 0)
 func _rx_machine_fields(batch: Dictionary) -> void:
 	if world_sync == null or world_sync.machines_sync == null:
 		return
@@ -743,35 +744,35 @@ func _straws() -> Node:
 	return world_sync.strands_sync
 
 
-@rpc("any_peer", "call_remote", "reliable", 11)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_straw_add(adds: Array) -> void:
 	var s := _straws()
 	if s != null:
 		s.on_add(multiplayer.get_remote_sender_id(), adds)
 
 
-@rpc("any_peer", "call_remote", "unreliable_ordered", 12)
+@rpc("any_peer", "call_remote", "unreliable_ordered", 0)
 func _rx_straw_move(ids: PackedInt64Array, rows: PackedFloat32Array) -> void:
 	var s := _straws()
 	if s != null:
 		s.on_move(ids, rows)
 
 
-@rpc("any_peer", "call_remote", "reliable", 11)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_straw_del(ids: PackedInt64Array) -> void:
 	var s := _straws()
 	if s != null:
 		s.on_del(ids)
 
 
-@rpc("any_peer", "call_remote", "reliable", 11)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_straw_census(ids: PackedInt64Array) -> void:
 	var s := _straws()
 	if s != null:
 		s.on_census(multiplayer.get_remote_sender_id(), ids)
 
 
-@rpc("any_peer", "call_remote", "reliable", 11)
+@rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_straw_claim(sid: int) -> void:
 	var s := _straws()
 	if s != null:

@@ -105,7 +105,7 @@ func _watchers() -> Array:
 		return out
 	for id in ws.avatars:
 		var a: Variant = ws.avatars[id]
-		if a != null and is_instance_valid(a):
+		if a != null and is_instance_valid(a) and (a as Node3D).is_inside_tree():
 			out.append((a as Node3D).global_position)
 	return out
 
@@ -139,7 +139,7 @@ func _scan() -> void:
 			if bool(b.get_meta("protected", false)):
 				continue
 			var body := b as Node3D
-			if not _near(body.global_position, watchers):
+			if not body.is_inside_tree() or not _near(body.global_position, watchers):
 				continue
 			var sid := int(b.get_meta("mp_sid", 0))
 			if sid != 0 and _mine.get(sid) == b:
@@ -177,7 +177,7 @@ func _send_moves() -> void:
 	var rows := PackedFloat32Array()
 	for sid in _mine:
 		var b: Variant = _mine[sid]
-		if b == null or not is_instance_valid(b):
+		if b == null or not is_instance_valid(b) or not (b as Node3D).is_inside_tree():
 			continue
 		var xf: Transform3D = (b as Node3D).global_transform
 		var was: Variant = _sent.get(sid)

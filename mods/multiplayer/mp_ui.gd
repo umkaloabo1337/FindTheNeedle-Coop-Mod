@@ -737,7 +737,10 @@ func _feed_life(c: Control, fade_in: bool) -> void:
 
 
 func _kill_life(c: Control) -> void:
-	var tw: Variant = c.get_meta("tw", null)
+	# get_meta(key, null) still logs an error when the key is missing
+	if not c.has_meta("tw"):
+		return
+	var tw: Variant = c.get_meta("tw")
 	if tw is Tween and (tw as Tween).is_valid():
 		(tw as Tween).kill()
 

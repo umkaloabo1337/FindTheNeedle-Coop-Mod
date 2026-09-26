@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.14.1
+
+* No more flood of "Peer is only set up to use 4 channels" warnings. The
+  Steam connection only has channels 0-3, so every message sent on a higher
+  channel logged a warning and went out on channel 0 anyway. Those messages
+  use channel 0 directly now; what goes over the wire is unchanged.
+* A prop, a strand of straw or a machine that the game had taken out of the
+  scene for a moment (while picking it up, for example) was read as sitting
+  at the origin. That filled the log with `!is_inside_tree()` errors and could
+  send the copy on the other side to 0,0,0. Those are skipped until they are
+  back in the scene.
+* The notification feed no longer logs "does not have any 'meta' values with
+  the key 'tw'" every time a message appears.
+* The props, machines and straw scripts are compile-checked at startup like
+  the rest, so a broken file shows up in the log straight away.
+
 ## v0.14.0
 
 * Half of every machine's parts never arrived. The number that names a part
