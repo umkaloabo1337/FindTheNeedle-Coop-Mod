@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.15.0
 
 * The chat box, the chat and notification cards and the guest's "joining"
   card now look like the game's own UI. The chat box is framed like the
