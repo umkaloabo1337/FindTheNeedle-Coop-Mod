@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.16.0
+
+* Guests can work the machines from their own panels. Switching a machine on
+  or off, the throw distance on a rake or a pelletizer, a launcher's aim and
+  power, which way a splitter sends things, an arm's tier and what it accepts,
+  a scanner's tier, a work lamp's brightness: change any of those as a guest
+  and the host now hears about it and the machine actually does it. Only the
+  settings travel. Fuel, stock and output stay the host's to count, so the
+  same hay still cannot pay twice. Hay a guest feeds into a machine by hand is
+  still not taken; that is the other half and it is not in yet.
+
 ## v0.15.1
 
 * The guest was given the short warehouse. Since the 27 Sep game build a save

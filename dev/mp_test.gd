@@ -13,6 +13,7 @@ var _report_t := 0.0
 var _world_t := -1.0
 var _did := {}
 var _layout := false
+var _machedit := false
 
 
 func _ready() -> void:
@@ -35,8 +36,10 @@ func _ready() -> void:
 		return
 	# MP_TEST_LAYOUT: skip the whole action sequence and just report what the
 	# two sides built, for the warehouse/sell stand mismatch
-	if OS.get_environment("MP_TEST_LAYOUT") != "":
-		_layout = true
+	if OS.get_environment("MP_TEST_MACHEDIT") != "":
+		_machedit = true
+	if OS.get_environment("MP_TEST_LAYOUT") != "" or _machedit:
+		_layout = _layout or OS.get_environment("MP_TEST_LAYOUT") != ""
 		for k in ["act1", "act2", "belt", "belt_shot", "dump", "gen", "genshot",
 				"grab", "grab_straw", "hand_shot", "hands", "hands2", "machine",
 				"mine", "pluck", "props", "props2", "shot_menu", "shot_world",
@@ -103,6 +106,21 @@ func _process(delta: float) -> void:
 		if _layout and wt > 10.0 and not _did.has("layout"):
 			_did["layout"] = true
 			_print_layout()
+		# wall clock, not time-in-world: the guest starts 20 s after the host,
+		# so using wt had the host reporting before the guest had touched it
+		if _machedit:
+			if _t > 25.0 and not _did.has("mplace") and role == "host":
+				_did["mplace"] = true
+				_mach_place()
+			if _t > 30.0 and not _did.has("mflip") and role == "join":
+				_did["mflip"] = true
+				_mach_flip()
+			if _t > 60.0 and not _did.has("mrep") and role == "host":
+				_did["mrep"] = true
+				_mach_report()
+			if _t > 45.0 and not _did.has("mrep") and role == "join":
+				_did["mrep"] = true
+				_mach_report()
 		if wt > 12.0 and not _did.has("act1"):
 			_did["act1"] = true
 			_act()
@@ -928,3 +946,37 @@ func _print_layout() -> void:
 	if role == "host":
 		var meta: Dictionary = ws.build_payload(2).get("meta", {})
 		print("[LAYOUT] host payload meta shed_bays=%s" % [meta.get("shed_bays", "AUSENTE")])
+
+
+# Host places a rake, the guest flips its switch on its own copy, and both
+# sides then say what the machine thinks. They have to agree.
+func _mach_place() -> void:
+	var ws: Node = mp.world_sync
+	var at: Vector3 = ws.world._seat(Vector3(6.0, 0.0, 12.0))
+	var rake: Variant = ws.builds.add_piston_rake(at, 0.0)
+	print("[MACHEDIT] host placed rake: %s" % [rake != null])
+
+
+func _mach_flip() -> void:
+	var ms: Node = mp.world_sync.machines_sync
+	for key in ms._nodes:
+		if String(ms._group.get(key, "")) != "piston_rakes":
+			continue
+		var n: Node = ms._nodes[key]
+		var before: Variant = n.get("switched_off")
+		n.call("set_switched_off", not bool(before))
+		print("[MACHEDIT] guest flipped %s: %s -> %s" % [key, before, n.get("switched_off")])
+		return
+	print("[MACHEDIT] guest found no rake to flip")
+
+
+func _mach_report() -> void:
+	var ms: Node = mp.world_sync.machines_sync
+	for key in ms._nodes:
+		if String(ms._group.get(key, "")) != "piston_rakes":
+			continue
+		var n: Node = ms._nodes[key]
+		print("[MACHEDIT] %s switched_off=%s throw_distance=%s" % [role,
+			n.get("switched_off"), n.get("throw_distance")])
+		return
+	print("[MACHEDIT] %s has no rake" % role)

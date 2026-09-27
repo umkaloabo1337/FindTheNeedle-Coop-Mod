@@ -17,6 +17,7 @@ extends Node
 
 const TICK := 0.1
 const FIELD_TICK := 0.5
+const EDIT_TICK := 0.2    # how often a guest looks for a setting it changed
 const FULL_TICK := 2.0    # how often every part goes out again, packets get lost
 const RANGE := 32.0        # metres from a player before a machine is worth sending
 const MOVE_EPS := 0.0015
@@ -55,6 +56,28 @@ const FIELDS := {
 # Machines that keep running on clients but whose settings still have to match.
 const SETTINGS_ONLY := ["work_lamps"]
 
+# What a panel lets a player change, as opposed to what a machine works out for
+# itself. Only these travel back from a guest: fuel, stock, output and the rest
+# are the host's to count, and taking a guest's word for them would let the
+# same hay pay twice.
+const SETTINGS := {
+	"generators": ["switched_off"],
+	"silos": ["switched_off"],
+	"splitters": ["forced_side", "priority_side"],
+	"tube_launchers": ["switched_off", "aim", "power"],
+	"piston_rakes": ["switched_off", "throw_distance"],
+	"pelletizers": ["switched_off", "throw_distance"],
+	"robotic_arms": ["switched_off", "accept_mask", "tier_index"],
+	"scanners": ["switched_off", "tier_index"],
+	"compressors": ["switched_off"],
+	"pulpers": ["switched_off"],
+	"papers": ["switched_off"],
+	"briquette_presses": ["switched_off"],
+	"wrappers": ["switched_off"],
+	"boreholes": ["switched_off"],
+	"work_lamps": ["brightness", "_off"],
+}
+
 var mp: Node
 var world: Node
 var builds: Node
@@ -76,6 +99,8 @@ var _group := {}    # key -> which build array it came from
 var _scan_t := 0.0
 var _t := 0.0
 var _field_t := 0.0
+var _edit_t := 0.0
+var _theirs := {}   # guest: key -> the settings as the host last stated them
 
 
 func start(mp_node: Node, world_node: Node) -> void:
@@ -203,7 +228,19 @@ func _process(delta: float) -> void:
 		return
 	if multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
 		return
-	if not mp.is_host or mp.players.size() < 2:
+	if not mp.is_host:
+		# a guest works the panels on its own copy, which the machine itself
+		# ignores, so watch for what the player changed and hand it to the host
+		_scan_t += delta
+		if _scan_t >= 2.0:
+			_scan_t = 0.0
+			_rescan()
+		_edit_t += delta
+		if _edit_t >= EDIT_TICK:
+			_edit_t = 0.0
+			_send_edits()
+		return
+	if mp.players.size() < 2:
 		return
 	_scan_t += delta
 	if _scan_t >= 2.0:
@@ -455,8 +492,76 @@ func on_fields(batch: Dictionary) -> void:
 		if n == null or not is_instance_valid(n):
 			continue
 		var diff: Dictionary = batch[key]
+		# remember what the host says, so a guest can tell a setting the player
+		# just changed from one the host handed down
+		var known: Dictionary = _theirs.get(key, {})
 		for f in diff:
 			_apply_field(n as Node, String(f), diff[f])
+			known[String(f)] = diff[f]
+		_theirs[key] = known
+
+
+# Guest: anything in SETTINGS that no longer matches what the host last told us
+# is something the player just did on a panel. Send it and remember it as the
+# new agreed value, so a switch does not go out again every tick while we wait
+# for the host to echo it back.
+func _send_edits() -> void:
+	if _theirs.is_empty():
+		return
+	var batch := {}
+	for key in _nodes:
+		var names: Array = SETTINGS.get(_group.get(key, ""), [])
+		if names.is_empty():
+			continue
+		var n: Variant = _nodes[key]
+		if n == null or not is_instance_valid(n):
+			continue
+		# nothing from the host yet: we have no idea what it thinks, so a
+		# difference here would be our own ignorance, not the player's doing
+		var known: Dictionary = _theirs.get(key, {})
+		if known.is_empty():
+			continue
+		var diff := {}
+		for f in names:
+			if not known.has(f):
+				continue
+			var v: Variant = (n as Node).get("switched_off" if f == "_off" else f)
+			if v == null or v == known[f]:
+				continue
+			diff[f] = v
+			known[f] = v
+		if not diff.is_empty():
+			batch[key] = diff
+	if batch.is_empty():
+		return
+	mp._rx_machine_edit.rpc_id(1, batch)
+	if _log:
+		print("[MPMACH] guest sent %d machine edits" % batch.size())
+
+
+# Host: a guest worked a panel. The machine is ours to run, so apply it here and
+# the next field tick hands it to everyone, the guest who asked included.
+func on_edit(from: int, batch: Dictionary) -> void:
+	if not mp.is_host or not mp.players.has(from):
+		return
+	for key in batch:
+		if not _nodes.has(key):
+			_rescan()
+		var n: Variant = _nodes.get(key)
+		if n == null or not is_instance_valid(n):
+			continue
+		var names: Array = SETTINGS.get(_group.get(key, ""), [])
+		var diff: Dictionary = batch[key]
+		var was: Dictionary = _vals.get(key, {})
+		for f in diff:
+			# only ever the settings: a guest does not get to set our stock
+			if names.has(String(f)):
+				_apply_field(n as Node, String(f), diff[f])
+			# forget what we last sent for it either way, so the next field
+			# tick states our value again: that is what puts a guest back in
+			# line when we would not take the change
+			was.erase(String(f))
+		_vals[key] = was
 
 
 # Go through the machine's own setter when it has one: several of them repaint

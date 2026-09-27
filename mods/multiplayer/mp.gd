@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.15.1"
+const VERSION := "0.16.0"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8
 const WORLD_CHUNK := 60000
@@ -734,6 +734,16 @@ func _rx_machine_fields(batch: Dictionary) -> void:
 	if world_sync == null or world_sync.machines_sync == null:
 		return
 	world_sync.machines_sync.on_fields(batch)
+
+
+# A guest worked a machine's panel. The machine runs on the host, so the host
+# is the only one that acts on this; everyone else hears about it in the next
+# field tick like any other change.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _rx_machine_edit(batch: Dictionary) -> void:
+	if not is_host or world_sync == null or world_sync.machines_sync == null:
+		return
+	world_sync.machines_sync.on_edit(multiplayer.get_remote_sender_id(), batch)
 
 
 # ---------------------------------------------------------------- loose straw
