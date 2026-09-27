@@ -37,6 +37,14 @@ const BUILD_ARRAYS := ["conveyors", "corners", "water_mains", "water_splitters",
 	"paint_boards", "work_lamps", "hay_drones", "piston_rakes", "power_poles"]
 const BUILD_SHAPE_KEYS := ["span", "rise", "kind", "sections", "rows", "side"]
 
+# Settings the game keeps in a save's meta and reads back when it loads one,
+# as { the name on Cfg: the name in the meta }. The guest builds its yard out
+# of our payload with the game's own loader, so anything missing here reaches
+# it as a default: shed_long_bays decides how long the warehouse is and where
+# the sell stand goes, and leaving it out put the two players' stands eleven
+# metres apart. Sent only when the game has it, so older builds are untouched.
+const CFG_META := {"shed_long_bays": "shed_bays"}
+
 const ADD_F := ["money", "debt", "hay_total", "hay_dug", "hay_returned", "hay_sold",
 	"money_earned", "stacks_ordered", "needles_found", "pile_needles_found"]
 const ADD_A := ["needles_by_type", "needle_stock"]
@@ -770,7 +778,7 @@ func build_payload(_pid: int) -> Dictionary:
 	var belts: Dictionary = {}
 	if world.has_method("_belts_to_dict"):
 		belts = world._belts_to_dict()
-	return {
+	var out := {
 		"version": SaveManager.FORMAT_VERSION,
 		"pile_shape_version": SaveManager.current_pile_shape_version,
 		"state": GameState.to_dict(),
@@ -796,6 +804,13 @@ func build_payload(_pid: int) -> Dictionary:
 			"money_earned": GameState.money_earned,
 		},
 	}
+	var meta: Dictionary = out["meta"]
+	for key in CFG_META:
+		# null when this build of the game does not have the setting
+		var v: Variant = Cfg.get(key)
+		if v != null:
+			meta[CFG_META[key]] = v
+	return out
 
 
 func send_full_sync(pid: int) -> void:

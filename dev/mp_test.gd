@@ -12,6 +12,7 @@ var _t := 0.0
 var _report_t := 0.0
 var _world_t := -1.0
 var _did := {}
+var _layout := false
 
 
 func _ready() -> void:
@@ -32,6 +33,15 @@ func _ready() -> void:
 	if role == "":
 		queue_free()
 		return
+	# MP_TEST_LAYOUT: skip the whole action sequence and just report what the
+	# two sides built, for the warehouse/sell stand mismatch
+	if OS.get_environment("MP_TEST_LAYOUT") != "":
+		_layout = true
+		for k in ["act1", "act2", "belt", "belt_shot", "dump", "gen", "genshot",
+				"grab", "grab_straw", "hand_shot", "hands", "hands2", "machine",
+				"mine", "pluck", "props", "props2", "shot_menu", "shot_world",
+				"shot_world2", "straws", "takeit", "wiggle"]:
+			_did[k] = true
 	# test copies get killed sometimes; clearing the sentinel avoids a false
 	# "crash" dialog. (Do NOT disable CrashReport: it is what removes the
 	# sentinel on a clean exit.)
@@ -71,9 +81,14 @@ func _process(delta: float) -> void:
 		mp.my_name = "Anfitrion"
 		mp.host(mp.DEFAULT_PORT)
 		SaveManager.use_scratch_dir("user://mp_test_host")
-		var dst := SaveManager.slot_path(0)
-		DirAccess.copy_absolute(ProjectSettings.globalize_path(arg), ProjectSettings.globalize_path(dst))
-		SaveManager.begin_load(0)
+		if arg == "new":
+			# the warehouse length only differs on a game started after the
+			# 27 Sep build, so an old save would hide the bug
+			SaveManager.begin_new_game(0, true)
+		else:
+			var dst := SaveManager.slot_path(0)
+			DirAccess.copy_absolute(ProjectSettings.globalize_path(arg), ProjectSettings.globalize_path(dst))
+			SaveManager.begin_load(0)
 		Loading.show_screen("TEST", "HOST")
 		Loading.enter_scene(mp.GAME_SCENE)
 	if role == "join" and not _did.has("start") and _t > 3.0 and mp.is_menu(get_tree().current_scene):
@@ -85,6 +100,9 @@ func _process(delta: float) -> void:
 			_world_t = _t
 			print("[MPTEST] in world at %.1fs" % _t)
 		var wt := _t - _world_t
+		if _layout and wt > 10.0 and not _did.has("layout"):
+			_did["layout"] = true
+			_print_layout()
 		if wt > 12.0 and not _did.has("act1"):
 			_did["act1"] = true
 			_act()
@@ -115,6 +133,15 @@ func _process(delta: float) -> void:
 		if wt > 24.0 and not _did.has("gen") and role == "host":
 			_did["gen"] = true
 			_act_generator()
+		if wt > 44.0 and not _did.has("pluck") and role == "host":
+			_did["pluck"] = true
+			_pluck_and_drop()
+		if wt > 52.0 and not _did.has("takeit") and role == "join":
+			_did["takeit"] = true
+			_grab_dropped()
+		if wt > 58.0 and not _did.has("genshot"):
+			_did["genshot"] = true
+			_shoot_gen()
 		if wt > 40.0 and not _did.has("dump"):
 			_did["dump"] = true
 			_dump_parts()
@@ -402,25 +429,21 @@ func _show_avatar() -> void:
 	var tool_id := int(OS.get_environment("MP_TEST_TOOL")) if OS.get_environment("MP_TEST_TOOL") != "" else 1
 	for i in 2:
 		var av: Node3D = load(mp.base_dir + "/mp_avatar.gd").new()
-		av.setup("A" if i == 0 else "B (180)", Color(0.3, 0.65, 0.98))
-		av.flip_tool = i == 1
+		av.setup("AleDev11" if i == 0 else "anxo0", Color(0.93, 0.36, 0.33) if i == 0 else Color(0.3, 0.65, 0.98))
 		ws.world.add_child(av)
-		av.set_target(mid + Vector3(float(i) * 2.4 - 1.2, 0.0, 0.0), PI, 0.0, tool_id, 0.0, 0.0)
+		av.set_target(mid + Vector3(float(i) * 1.6 - 0.8, 0.0, 0.0), PI - 0.25 + 0.5 * float(i), 0.0, 0 if i == 0 else 2, 0.0, 0.0)
 		# left one holds straw in its fist, right one a needle
 		ws.avatars[901 + i] = av
-		av.set_hands(4 if i == 0 else 0, -1 if i == 0 else 2)
+		av.set_hands(5 if i == 0 else 0, -1)
 		if i == 0 and ws.strands_sync != null:
-			ws.strands_sync.set_hand(901, 4)
+			ws.strands_sync.set_hand(901, 5)
 	var d := mid - p.global_position
 	p.set_look(atan2(-d.x, -d.z), -0.05)
 	await get_tree().create_timer(2.0).timeout
 	await _shot("tool%d" % tool_id)
 	print("[MPTEST] tool shot done for tool %d" % tool_id)
 	# close up, bare hands: the straws and the needle are small
-	for i in 2:
-		var who: Node3D = ws.avatars[901 + i]
-		who.set_target(mid + Vector3(float(i) * 1.2 - 0.6, 0.0, 0.0), PI, 0.0, 0, 0.0, 0.0)
-	var near: Vector3 = mid + Vector3(-0.1, 0.0, 1.5)
+	var near: Vector3 = mid + Vector3(0.4, 0.0, 2.6)
 	p.global_position = ws.world._seat(near)
 	await get_tree().create_timer(0.8).timeout
 	var look: Vector3 = (mid + Vector3(0.0, 1.15, 0.0)) - p.eye_position()
@@ -720,12 +743,33 @@ func _gen_line() -> String:
 			fire += 1
 	for n in gen.find_children("*", "Light3D", true, false):
 		lights += (n as Light3D).light_energy
-	var where := "-"
 	var puffs: Array = gen.find_children("*", "GPUParticles3D", true, false)
-	if puffs.size() > 0:
-		where = String(gen.get_path_to(puffs[0]))
-	return "gen=%s solid=%s fire=%d/%d light=%.2f fuel=%.1f path=%s" % [
-		gen.name, solid, fire, puffs.size(), lights, float(gen.get("fuel")), where]
+	# what a player would actually see on it
+	var shown := 0
+	var hidden := 0
+	var smoke := -1.0
+	var heap := -1.0
+	for n in gen.find_children("*", "MeshInstance3D", true, false):
+		var mi := n as MeshInstance3D
+		if mi.visible:
+			shown += 1
+		else:
+			hidden += 1
+		if String(mi.name).to_lower().contains("heap"):
+			heap = mi.scale.y
+		var mat: Variant = mi.material_override
+		if mat == null and mi.get_surface_override_material_count() > 0:
+			mat = mi.get_surface_override_material(0)
+		if mat is ShaderMaterial and smoke < 0.0:
+			for u in (mat as ShaderMaterial).shader.get_shader_uniform_list():
+				if int(u.get("type", -1)) == TYPE_FLOAT:
+					var v: Variant = (mat as ShaderMaterial).get_shader_parameter(String(u.get("name", "")))
+					if v != null:
+						smoke = float(v)
+						break
+	return "gen=%s solid=%s fire=%d/%d light=%.2f fuel=%.1f shown=%d hidden=%d heap=%.2f shader=%.3f" % [
+		gen.name, solid, fire, puffs.size(), lights, float(gen.get("fuel")),
+		shown, hidden, heap, smoke]
 
 
 # can I pick up an item of my own that I just dropped?
@@ -767,3 +811,120 @@ func _dump_parts() -> void:
 		names.sort()
 		print("[MPPARTS] %s %d: %s" % [role, names.size(), ",".join(names)])
 		return
+
+
+# the real case: pull a straw out of the pile by hand and drop it
+func _pluck_and_drop() -> void:
+	var ws: Node = mp.world_sync
+	var p: Node3D = ws.player
+	var hand: Variant = p.get("hand")
+	if hand == null:
+		return
+	if int(hand.count()) > 0:
+		hand.drop_held()
+		await get_tree().create_timer(0.3).timeout
+	# stand on the pile and look down at it
+	p.global_position = ws.world._seat(Vector3(0.0, 0.0, 2.5)) + Vector3(0.0, 0.3, 0.0)
+	p.velocity = Vector3.ZERO
+	await get_tree().create_timer(0.8).timeout
+	p.set_look(p.rotation.y, -1.1)
+	await get_tree().create_timer(0.6).timeout
+	var hit: Dictionary = hand.aim_hit()
+	hand.primary()
+	await get_tree().create_timer(0.6).timeout
+	var took: int = int(hand.count())
+	hand.drop_held()
+	await get_tree().create_timer(1.2).timeout
+	var ss: Node = ws.strands_sync
+	print("[MPTEST] %s plucked %d from the pile (aim hit %s) and dropped it; mine=%d" % [
+		role, took, not hit.is_empty(), ss._mine.size()])
+
+
+# and the other side tries to pick that one up
+func _grab_dropped() -> void:
+	var ws: Node = mp.world_sync
+	var ss: Node = ws.strands_sync
+	var mark: Vector3 = ws.player.global_position
+	for id in ws.avatars:
+		var a: Variant = ws.avatars[id]
+		if a != null and is_instance_valid(a):
+			mark = (a as Node3D).global_position
+			break
+	var best := INF
+	var target: Node3D = null
+	var sid := 0
+	for id in ss._ghost:
+		var b: Variant = ss._ghost[id]
+		if b == null or not is_instance_valid(b):
+			continue
+		var far: float = (b as Node3D).global_position.distance_to(mark)
+		if far < best:
+			best = far
+			target = b
+			sid = id
+	if target == null:
+		print("[MPTEST] %s sees no straw of theirs at all" % role)
+		return
+	var p: Node3D = ws.player
+	var at: Vector3 = target.global_position
+	p.global_position = at + Vector3(0.5, 0.35, 0.0)
+	p.velocity = Vector3.ZERO
+	await get_tree().process_frame
+	var hand: Variant = p.get("hand")
+	if int(hand.count()) > 0:
+		hand.drop_held()
+	var d: Vector3 = at - p.eye_position()
+	p.set_look(atan2(-d.x, -d.z), atan2(d.y, Vector2(d.x, d.z).length()))
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var seen: Dictionary = hand.aim_hit()
+	var before: int = int(hand.count())
+	hand.primary()
+	await get_tree().create_timer(0.4).timeout
+	print("[MPTEST] %s grabbing the dropped straw %d at %.2f m: aim=%s hand %d->%d copy_left=%s" % [
+		role, sid, best, not seen.is_empty(), before, int(hand.count()), ss._ghost.has(sid)])
+
+
+# photograph the generator from the same spot on both sides
+func _shoot_gen() -> void:
+	var ws: Node = mp.world_sync
+	var arr: Variant = ws.builds.get("generators")
+	if not (arr is Array) or (arr as Array).is_empty():
+		return
+	var gen: Node3D = (arr as Array)[0]
+	var at: Vector3 = gen.global_position
+	var p: Node3D = ws.player
+	# empty the hands first or we photograph a bale from the inside
+	if p.carry != null and p.carry.is_carrying():
+		p.carry.drop()
+	var hand: Variant = p.get("hand")
+	if hand != null and int(hand.count()) > 0:
+		hand.drop_held()
+	await get_tree().create_timer(0.4).timeout
+	p.global_position = at + Vector3(5.0, 1.2, 5.0)
+	p.velocity = Vector3.ZERO
+	await get_tree().create_timer(0.8).timeout
+	var d: Vector3 = (at + Vector3(0.0, 1.5, 0.0)) - p.eye_position()
+	p.set_look(atan2(-d.x, -d.z), atan2(d.y, Vector2(d.x, d.z).length()))
+	await get_tree().create_timer(1.2).timeout
+	await _shot("generator")
+	print("[MPTEST] %s photographed the generator" % role)
+
+
+# What the two sides actually built: warehouse length and where the sell stand
+# ended up. They have to match, or one player sells where the other sees wall.
+func _print_layout() -> void:
+	var ws: Node = mp.world_sync
+	var w: Node = ws.world
+	var bays: Variant = Cfg.get("shed_long_bays")
+	var stand: Variant = w.get("stand")
+	var shed: Variant = w.get("warehouse")
+	var span: Variant = null
+	if shed != null and is_instance_valid(shed) and shed.has_method("span_z"):
+		span = shed.call("span_z")
+	print("[LAYOUT] %s shed_long_bays=%s stand=%s span_z=%s" % [role, bays,
+		(stand as Node3D).global_position if stand != null and is_instance_valid(stand) else "?",
+		span])
+	if role == "host":
+		var meta: Dictionary = ws.build_payload(2).get("meta", {})
+		print("[LAYOUT] host payload meta shed_bays=%s" % [meta.get("shed_bays", "AUSENTE")])

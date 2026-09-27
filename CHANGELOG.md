@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.15.1
+
+* The guest was given the short warehouse. Since the 27 Sep game build a save
+  carries how long the warehouse is, and the world the host sends a guest is
+  built by hand and did not include it, so guests loaded the old, shorter shed.
+  The sell stand is placed from that length, so the two players had theirs 11 m
+  apart: hay sent along a belt to one stand landed on bare floor at the other,
+  and walking up to sell could put you inside a wall. Host and guest now build
+  the same yard.
+
 ## v0.15.0
 
 * The chat box, the chat and notification cards and the guest's "joining"
