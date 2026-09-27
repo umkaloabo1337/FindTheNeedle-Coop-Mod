@@ -56,6 +56,13 @@ const FIELDS := {
 # Machines that keep running on clients but whose settings still have to match.
 const SETTINGS_ONLY := ["work_lamps"]
 
+# The areas a machine watches for something to eat. Named rather than walked,
+# because a machine's other areas are the scanner's beam and the stairs' climb
+# zone, which have nothing to do with taking hay in.
+const MOUTHS := ["_intake", "_hopper", "_mouth", "_mouth_area", "_wad_mouth",
+	"_brick_mouth", "_catch"]
+const MOUTH_TICK := 0.25
+
 # What a panel lets a player change, as opposed to what a machine works out for
 # itself. Only these travel back from a guest: fuel, stock, output and the rest
 # are the host's to count, and taking a guest's word for them would let the
@@ -100,6 +107,7 @@ var _scan_t := 0.0
 var _t := 0.0
 var _field_t := 0.0
 var _edit_t := 0.0
+var _mouth_t := 0.0
 var _theirs := {}   # guest: key -> the settings as the host last stated them
 
 
@@ -258,6 +266,10 @@ func _process(delta: float) -> void:
 	if _field_t >= FIELD_TICK:
 		_field_t = 0.0
 		_send_fields()
+	_mouth_t += delta
+	if _mouth_t >= MOUTH_TICK:
+		_mouth_t = 0.0
+		_feed_mouths()
 
 
 func _watchers() -> Array:
@@ -537,6 +549,31 @@ func _send_edits() -> void:
 	mp._rx_machine_edit.rpc_id(1, batch)
 	if _log:
 		print("[MPMACH] guest sent %d machine edits" % batch.size())
+
+
+# Host: hand the machines whatever a guest has put in their mouths. A copy
+# somebody else owns is frozen, and a machine skips a frozen body that is not
+# riding a belt, so a guest could load a generator all day and nothing burned.
+# Taking the item over here lets the machine's own code do the rest.
+func _feed_mouths() -> void:
+	var props: Node = mp.world_sync.props_sync if mp.world_sync != null else null
+	if props == null or not is_instance_valid(props):
+		return
+	var watchers := _watchers()
+	if watchers.is_empty():
+		return
+	for key in _nodes:
+		var n: Variant = _nodes[key]
+		if n == null or not is_instance_valid(n) or not (n as Node3D).is_inside_tree():
+			continue
+		if not _near((n as Node3D).global_position, watchers):
+			continue
+		for mouth in MOUTHS:
+			var a: Variant = (n as Node).get(mouth)
+			if not (a is Area3D) or not (a as Area3D).is_inside_tree():
+				continue
+			for body in (a as Area3D).get_overlapping_bodies():
+				props.host_take(body)
 
 
 # Host: a guest worked a panel. The machine is ours to run, so apply it here and

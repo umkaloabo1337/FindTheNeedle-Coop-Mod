@@ -14,6 +14,7 @@ var _world_t := -1.0
 var _did := {}
 var _layout := false
 var _machedit := false
+var _feed := false
 
 
 func _ready() -> void:
@@ -38,7 +39,9 @@ func _ready() -> void:
 	# two sides built, for the warehouse/sell stand mismatch
 	if OS.get_environment("MP_TEST_MACHEDIT") != "":
 		_machedit = true
-	if OS.get_environment("MP_TEST_LAYOUT") != "" or _machedit:
+	if OS.get_environment("MP_TEST_FEED") != "":
+		_feed = true
+	if OS.get_environment("MP_TEST_LAYOUT") != "" or _machedit or _feed:
 		_layout = _layout or OS.get_environment("MP_TEST_LAYOUT") != ""
 		for k in ["act1", "act2", "belt", "belt_shot", "dump", "gen", "genshot",
 				"grab", "grab_straw", "hand_shot", "hands", "hands2", "machine",
@@ -121,6 +124,22 @@ func _process(delta: float) -> void:
 			if _t > 45.0 and not _did.has("mrep") and role == "join":
 				_did["mrep"] = true
 				_mach_report()
+		if _feed:
+			if _t > 25.0 and not _did.has("fplace") and role == "host":
+				_did["fplace"] = true
+				_feed_place()
+			if _t > 32.0 and not _did.has("fdrop") and role == "join":
+				_did["fdrop"] = true
+				_feed_drop()
+			if _t > 60.0 and not _did.has("frep") and role == "host":
+				_did["frep"] = true
+				_feed_report()
+			if _t > 40.0 and not _did.has("frep0") and role == "join":
+				_did["frep0"] = true
+				_feed_report()
+			if _t > 45.0 and not _did.has("frep") and role == "join":
+				_did["frep"] = true
+				_feed_report()
 		if wt > 12.0 and not _did.has("act1"):
 			_did["act1"] = true
 			_act()
@@ -980,3 +999,52 @@ func _mach_report() -> void:
 			n.get("switched_off"), n.get("throw_distance")])
 		return
 	print("[MACHEDIT] %s has no rake" % role)
+
+
+# Host puts a generator down; the guest spawns a hay wad in its mouth. The
+# generator must burn it: fuel goes up on the host and the wad is gone on both.
+func _feed_place() -> void:
+	var ws: Node = mp.world_sync
+	var at: Vector3 = ws.world._seat(Vector3(-6.0, 0.0, 10.0))
+	var gen: Variant = ws.builds.add_generator(at, 0.0)
+	print("[FEED] host placed generator: %s" % [gen != null])
+
+
+func _feed_gen() -> Node:
+	var ws: Node = mp.world_sync
+	var arr: Variant = ws.builds.get("generators")
+	if arr is Array and not (arr as Array).is_empty():
+		return (arr as Array)[0]
+	return null
+
+
+func _feed_drop() -> void:
+	var gen: Node = _feed_gen()
+	if gen == null:
+		print("[FEED] guest sees no generator")
+		return
+	var mouth: Variant = gen.get("_intake")
+	if not (mouth is Area3D):
+		print("[FEED] generator has no _intake")
+		return
+	var ws: Node = mp.world_sync
+	# a metre above the mouth, so it falls in the way a player would drop it:
+	# spawning it inside the machine has the game tidy it away as stuck
+	var at: Vector3 = (mouth as Area3D).global_position + Vector3.UP * 1.2
+	var item: Variant = ws.world.props.spawn("hay_wad", Transform3D(Basis(), at))
+	print("[FEED] guest dropped a wad at %s: %s" % [at, item != null])
+
+
+func _feed_report() -> void:
+	var gen: Node = _feed_gen()
+	var ws: Node = mp.world_sync
+	var ids: Array = []
+	for id in ws.props_sync._by_id:
+		var it: Variant = ws.props_sync._by_id[id]
+		if it != null and is_instance_valid(it):
+			ids.append("%s:%d:own=%s" % [it.item_id, id, ws.props_sync._owner.get(id, 0)])
+	var frozen := "no gen"
+	if gen != null:
+		frozen = "phys=%s proc=%s fuel=%s" % [gen.is_physics_processing(),
+			gen.is_processing(), gen.get("fuel")]
+	print("[FEED] %s gen(%s) props=%s" % [role, frozen, ids])

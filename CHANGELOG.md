@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.17.0
+
+* Hay a guest loads into a machine finally counts. A machine skips a frozen
+  body that is not riding a belt, and a copy of somebody else's item is
+  exactly that, so a guest could fill a generator all day and nothing burned.
+  The host now takes over an item that is sitting in a machine's mouth and
+  lets the machine's own code swallow it. It burns once, on the host, and
+  everyone sees the fuel move. An item somebody is carrying is left alone.
+
 ## v0.16.0
 
 * Guests can work the machines from their own panels. Switching a machine on

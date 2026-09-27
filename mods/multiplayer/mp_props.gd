@@ -186,6 +186,30 @@ func _mine(id: int) -> bool:
 	return int(_owner.get(id, 0)) == _me()
 
 
+# Host only. A guest's item is sitting in a machine's mouth. The machines run
+# here, and they will not touch a frozen copy that belongs to somebody else, so
+# take it over first: once it is ours and unfrozen the machine swallows it on
+# its own tick, and the delete goes out like any other. This is how hay a guest
+# loads finally counts, and it still only counts once, here.
+func host_take(item: Variant) -> bool:
+	if not mp.is_host or item == null or not is_instance_valid(item):
+		return false
+	var n := item as Node
+	if n == null or not n.has_meta("mp_id"):
+		return false
+	var id := int(n.get_meta("mp_id"))
+	# theirs to carry for as long as they are carrying it
+	if _mine(id) or bool(_held.get(id, false)):
+		return false
+	_owner[id] = _me()
+	_goal.erase(id)
+	_held.erase(id)
+	_hash.erase(id)
+	_release(n)
+	mp._rx_prop_claim.rpc(id)
+	return true
+
+
 # ------------------------------------------------------------------ local events
 
 func _on_added(item: Node) -> void:
