@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.18.1
 
 * A guest's game could crash while the host was building. The game keeps its
   straw in a pool: a straw that gets used up (a bucket or the vac takes it, a
