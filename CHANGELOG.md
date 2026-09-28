@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.18.1
+
+* A guest's game could crash while the host was building. The game keeps its
+  straw in a pool: a straw that gets used up (a bucket or the vac takes it, a
+  belt or a machine eats it) leaves the world and the same body comes back
+  later as a different straw. The mod held on to its copies of the host's
+  straw through that, kept moving them, read their position once they were
+  out of the world (the "!is_inside_tree" errors in the crash logs), and when
+  the host's straw went away it handed the body back to the pool again, while
+  a belt, a hand or a machine was using it as something else. Building moves
+  and clears a lot of straw, which is why it showed up then. The mod now lets
+  go of a straw body the moment the game takes it out of the world.
+
 ## v0.18.0
 
 * Hay a guest drops on a belt now gets there. The guest's own belt took the
