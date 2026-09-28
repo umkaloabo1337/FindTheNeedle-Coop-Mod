@@ -53,6 +53,7 @@ func setup(base_dir: String) -> Dictionary:
 	persona = str(steam.call("getPersonaName"))
 	available = true
 	load_status = "Steam listo (%s)" % persona
+	_tune_networking()
 	_connect_signals()
 	set_process(true)
 	return {"ok": true, "status": load_status}
@@ -66,6 +67,36 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if steam != null:
 		steam.call("run_callbacks")
+
+
+# Steam's networking defaults, set before any connection is made.
+#
+# ICE off: connections go through Steam's relays only, never straight between
+# the two PCs. A player's crash dump put the crash some guests get a while
+# after joining on an assert in Steam's own ICE code (m_pTransportICE, in
+# steamnetworkingsockets_p2p_ice.cpp), and that takes the whole game down.
+# Relays cost a few ms and also keep everyone's IP address private.
+#
+# A bigger send buffer: the world goes to a guest in one go and the default
+# 512 KB is less than a big yard, so Steam refused the rest of it.
+const SEND_BUFFER := 8 << 20
+
+func _tune_networking() -> void:
+	_set_global("NETWORKING_CONFIG_P2P_TRANSPORT_ICE_ENABLE", "NETWORKING_CONFIG_P2P_TRANSPORT_ICE_DISABLE")
+	_set_global("NETWORKING_CONFIG_SEND_BUFFER_SIZE", "", SEND_BUFFER)
+
+
+func _set_global(key: String, value_name: String, value: int = 0) -> void:
+	if not ClassDB.class_has_integer_constant("Steam", key):
+		print("[MPMod] steam: no %s in this GodotSteam" % key)
+		return
+	if value_name != "":
+		if not ClassDB.class_has_integer_constant("Steam", value_name):
+			print("[MPMod] steam: no %s in this GodotSteam" % value_name)
+			return
+		value = ClassDB.class_get_integer_constant("Steam", value_name)
+	var ok: Variant = steam.call("setGlobalConfigValueInt32", ClassDB.class_get_integer_constant("Steam", key), value)
+	print("[MPMod] steam: %s = %d (%s)" % [key, value, "ok" if ok else "refused"])
 
 
 func _write_app_id_file() -> void:
