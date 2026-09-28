@@ -1030,7 +1030,7 @@ func _feed_drop() -> void:
 	var ws: Node = mp.world_sync
 	# a metre above the mouth, so it falls in the way a player would drop it:
 	# spawning it inside the machine has the game tidy it away as stuck
-	var at: Vector3 = (mouth as Area3D).global_position + Vector3.UP * 1.2
+	var at: Vector3 = (mouth as Area3D).global_position + Vector3.UP * 0.45
 	var item: Variant = ws.world.props.spawn("hay_wad", Transform3D(Basis(), at))
 	print("[FEED] guest dropped a wad at %s: %s" % [at, item != null])
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.18.0
 
 * Hay a guest drops on a belt now gets there. The guest's own belt took the
   item and the host's next belt snapshot wiped it, so it was gone before any

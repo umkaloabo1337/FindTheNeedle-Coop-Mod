@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.17.0"
+const VERSION := "0.18.0"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8
 const WORLD_CHUNK := 60000
@@ -72,7 +72,7 @@ func _ready() -> void:
 			test.mp = self
 			add_child(test)
 	for f in ["mp_world.gd", "mp_avatar.gd", "mp_i18n.gd", "mp_props.gd",
-			"mp_machines.gd", "mp_strands.gd"]:
+			"mp_machines.gd", "mp_strands.gd", "mp_contracts.gd"]:
 		var s: Script = load(base_dir + "/" + f)
 		if s == null or not s.can_instantiate():
 			push_error("[MPMod] %s failed to compile" % f)
