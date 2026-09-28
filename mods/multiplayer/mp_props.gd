@@ -46,6 +46,8 @@ var _held_t := 0.0
 var _hidden := {}   # mp id -> the layer a hidden copy had, while it is hidden
 var _held := {}     # mp id -> true while its owner says they're carrying it
 var _pushed := {}   # mp id -> avatar placing that copy in its hands
+var _boarded := {}  # mp id -> where one of ours got on a belt, guest only
+var _belt_t := 0.0
 var _log := OS.get_environment("MP_DEBUG_PROPS") != ""  # dev tracing
 
 
@@ -91,6 +93,7 @@ func shutdown() -> void:
 		if is_instance_valid(_pushed[id]):
 			_pushed[id].push_item(null)
 	_pushed.clear()
+	_boarded.clear()
 	_held.clear()
 	_hidden.clear()
 	_by_id.clear()
@@ -235,7 +238,19 @@ func _on_removed(item: Node) -> void:
 		return
 	if _log:
 		print("[MPPROPS] lost %s id=%d mine=%s" % [item.item_id, id, mine])
-	if mine:
+	if mine and _boarded.has(id):
+		# our belt took it, but the host's belts are the real ones: hand it over
+		# there, or the host's next belt snapshot wipes it and the hay is gone
+		mp._rx_prop_board.rpc_id(1, id, _boarded[id])
+		_boarded.erase(id)
+	elif mine:
+		mp._rx_prop_del.rpc(PackedInt64Array([id]))
+	elif mp.is_host:
+		# the host's world is the one that counts: something here used up a
+		# guest's item (the delivery truck loads whatever lands in its bed), so
+		# it is gone for everybody. Asking for it back put it in the truck again
+		# and the same bale was counted over and over.
+		mp._rx_prop_claim.rpc(id)
 		mp._rx_prop_del.rpc(PackedInt64Array([id]))
 	else:
 		# a local machine ate a copy: ask for it back
@@ -257,6 +272,38 @@ func _on_carry_changed(item: Variant) -> void:
 	_hash.erase(id)
 	_release(item)
 	mp._rx_prop_claim.rpc(id)
+
+
+# Guest only. A belt says what it caught just before it takes the item out of
+# the prop list, so note ours on the way past and _on_removed knows why it went.
+func _watch_belts() -> void:
+	for belt in BeltPath._live:
+		if is_instance_valid(belt) and not belt.caught.is_connected(_on_belt_caught):
+			belt.caught.connect(_on_belt_caught)
+
+
+func _on_belt_caught(rb: Node) -> void:
+	if rb == null or not is_instance_valid(rb) or not rb.has_meta("mp_id"):
+		return
+	var id := int(rb.get_meta("mp_id"))
+	if _mine(id):
+		_boarded[id] = (rb as Node3D).global_transform
+
+
+# Host only. The guest's belt took one of the guest's items at xf. Take our copy
+# over, put it there and let it go: our belt catches it on its next tick and it
+# reaches everyone in the belt snapshot, the way the host's own hay does.
+func on_board(sender: int, id: int, xf: Transform3D) -> void:
+	var it: Variant = _by_id.get(id)
+	if it == null or not is_instance_valid(it) or int(_owner.get(id, 0)) != sender:
+		return
+	# it just left their hands, whatever the last state said
+	_held.erase(id)
+	if not host_take(it):
+		return
+	_place(it, xf)
+	(it as RigidBody3D).linear_velocity = Vector3.ZERO
+	(it as RigidBody3D).sleeping = false
 
 
 func _state_of(item: Node) -> Dictionary:
@@ -284,6 +331,11 @@ func _process(delta: float) -> void:
 		return
 	if not _ready_map:
 		return
+	if not mp.is_host:
+		_belt_t += delta
+		if _belt_t >= 0.5:
+			_belt_t = 0.0
+			_watch_belts()
 	_move_t += delta
 	if _move_t >= MOVE_TICK:
 		_move_t = 0.0

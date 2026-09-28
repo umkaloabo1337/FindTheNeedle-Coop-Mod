@@ -685,6 +685,15 @@ func _rx_prop_claim(id: int) -> void:
 		p.on_claim(multiplayer.get_remote_sender_id(), id)
 
 
+# A guest's belt took one of its items. Only the host's belts count, so the
+# host puts its own copy down there instead.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _rx_prop_board(id: int, xf: Transform3D) -> void:
+	var p := _props()
+	if p != null and is_host:
+		p.on_board(multiplayer.get_remote_sender_id(), id, xf)
+
+
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_want(ids: PackedInt64Array) -> void:
 	var p := _props()
@@ -744,6 +753,13 @@ func _rx_machine_edit(batch: Dictionary) -> void:
 	if not is_host or world_sync == null or world_sync.machines_sync == null:
 		return
 	world_sync.machines_sync.on_edit(multiplayer.get_remote_sender_id(), batch)
+
+
+@rpc("authority", "call_remote", "reliable", 0)
+func _rx_contract(state: Dictionary) -> void:
+	if world_sync == null or world_sync.contracts_sync == null:
+		return
+	world_sync.contracts_sync.on_state(state)
 
 
 # ---------------------------------------------------------------- loose straw
