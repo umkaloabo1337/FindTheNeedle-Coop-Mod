@@ -1,5 +1,62 @@
 # Changelog
 
+## v0.19.0
+
+* A guest no longer crashes when it quits the game. Godot takes the scene tree
+  down from the last node to the first, so the world went before the mod had
+  undone what it changes on a guest (straw copies put back into the physics
+  world by hand, frozen copies of items, stopped machines). The mod now keeps
+  itself last and cleans up first.
+* The haystack is the host's. A guest's digs go to the host, which settles
+  them into its own pile and sends the result to everyone. Every 4 seconds the
+  host also sends a checksum per block of the pile, and a guest asks for any
+  block that drifted. Two players digging, or a slide running differently on
+  each side, used to leave different piles for good, until F8.
+* A needle two players grab at the same moment goes to one of them. The host
+  decides who holds each loose needle and the other player's copy leaves their
+  hand. Both used to keep it, and it could be handed in twice. A guest who
+  leaves while holding a needle drops it where they last stood instead of
+  taking it with them.
+* Missions pay once, on the host. A guest's own director paid a step too when
+  it saw it finish, and that reached the host as more money.
+* Two players buying the same tech rank at the same moment pay for it once:
+  the host gives the second payment back.
+* A new hay load a guest pays for is given back if the host cannot take it
+  (the landing spot is blocked, for one).
+* A guest's building no longer empties the host's list of buildings the demo
+  holds back, which dropped them from the host's save, and enclosed belts keep
+  their covers. The game's loader clears those along with the building lists.
+* The farmer holds the right needle for every type. Past the 15th type the
+  needle in the hand was read back through a 4-bit mask and came out wrong.
+* A machine's smoke and glow no longer show on every machine of its kind on a
+  guest (a shared material gets its own copy first). Machine updates too big
+  for one packet go out reliably instead of being lost whole, a machine key a
+  guest does not know no longer walks every machine again for every packet,
+  and the state kept for demolished machines is let go.
+* Items made after an F8 resync no longer take over older items: their ids
+  carry on from the highest one already in the yard.
+* Guests get the host's pile shape (the dome) with the world instead of
+  shaping it again from the seed.
+* An F8 resync on a guest no longer drops what it spent or earned since the
+  last state tick.
+* The contract board compares which contracts are done, not how many.
+* Nothing is written into the game folder any more. The Steam app id goes in
+  through the environment instead of a steam_appid.txt next to the exe. Steam
+  callbacks run once a frame (they ran twice), and ENet takes eight players in
+  total, like Steam.
+* Career stats are left alone during a session, so nobody is credited with the
+  whole team's hay, money and needles; the profile is read back from disk when
+  the session ends. The online leaderboard is off for as long as the mod is
+  loaded, as the README says, and the player name no longer runs a registry
+  query at startup when Steam is up.
+* Belt contents go out when they changed, and every 2 seconds, instead of four
+  times a second.
+* A machine a guest places is stopped straight away, not on the next build
+  tick, and removing a building looks for that very building before the
+  nearest one of its kind.
+* `dev/mp_sync_test.gd`: two-player checks for the above, host and guest on one
+  PC.
+
 ## v0.18.0
 
 * Hay a guest drops on a belt now gets there. The guest's own belt took the

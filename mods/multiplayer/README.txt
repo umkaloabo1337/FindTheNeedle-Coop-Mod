@@ -1,4 +1,4 @@
-FIND THE NEEDLE CO-OP MOD  v0.18.0
+FIND THE NEEDLE CO-OP MOD  v0.19.0
 ==================================
 
 Unofficial mod. Every player needs the game (the free Steam demo) and this
@@ -72,6 +72,9 @@ KNOWN LIMITATIONS
   - Bought tools are per player. Money is shared.
   - Only the host saves. Clients never write to their own saves.
   - The online leaderboard is disabled while the mod is loaded.
+  - Money can dip below zero if two players spend at the same moment.
+  - Who holds a loose needle is shared; where it lies can differ a little
+    between players until someone picks it up.
 
 CREDITS
 -------

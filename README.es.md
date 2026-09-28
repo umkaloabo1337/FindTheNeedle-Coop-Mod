@@ -102,6 +102,9 @@ juego, así que se leen igual que en el resto de la interfaz.
 * Las herramientas compradas son de cada jugador. El dinero es común.
 * Solo guarda el anfitrión. Los clientes no escriben en sus partidas.
 * La tabla de clasificación online se desactiva con el mod cargado.
+* El dinero puede bajar de cero si dos jugadores gastan a la vez.
+* Quién tiene una aguja suelta es común; dónde está tirada puede variar un
+  poco entre jugadores hasta que alguien la coge.
 
 ## Problemas
 
@@ -157,6 +160,7 @@ mods/multiplayer/     lo que va en la release
   models/             modelo del granjero (CC0)
   steam/              GodotSteam GDExtension (compilado)
 dev/mp_test.gd        arnés de pruebas, no se distribuye
+dev/mp_sync_test.gd   comprobaciones de sincronización a dos, no se distribuye
 dev/avatar_calib.gd   ajuste en vivo de la altura del avatar, no se distribuye
 dev/tool_poser.gd     colocar a mano las herramientas del granjero, no se distribuye
 dev/tool_poser.bat    abre el juego con el posicionador
@@ -185,6 +189,11 @@ Para usar el arnés de pruebas, copia `dev/mp_test.gd` junto a `mp.gd` y arranca
 el juego con `MP_TEST_AVATAR=user://saves/slot_1.dat`, y `MP_TEST_TOOL=1` para
 la pala. Coloca dos muñecos con esa herramienta, uno de ellos girado, y guarda
 una captura.
+
+`dev/mp_sync_test.gd` arranca un anfitrión y un invitado en el mismo PC por la
+conexión IP y comprueba que el pajar, el dinero, las misiones, la tecnología,
+las agujas y los edificios coinciden. Cópialo junto a `mp.gd` como
+`mp_test.gd`; cómo arrancar los dos está al principio del archivo.
 
 `dev/avatar_calib.gd` te pone delante un granjero que copia hacia dónde miras
 y si te agachas, para ajustar `MODEL_HEIGHT` y `CROUCH_DROP` con las flechas y
