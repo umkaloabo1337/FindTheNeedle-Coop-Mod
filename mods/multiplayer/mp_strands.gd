@@ -33,6 +33,7 @@ var _sent := {}      # sid -> last transform broadcast
 var _owner := {}     # sid -> peer, for ghosts
 var _goal := {}      # sid -> where a copy is heading, eased so it does not jump
 var _next := 0
+var _watched := {}   # instance id -> true, bodies whose tree_exiting we listen to
 var _scan_t := 0.0
 var _move_t := 0.0
 var _census_t := 0.0
@@ -64,6 +65,44 @@ func shutdown() -> void:
 
 func _me() -> int:
 	return multiplayer.get_unique_id()
+
+
+# The game keeps its straw bodies in a pool: a straw that is used up (a bucket
+# scoops it, the vac takes it, it rides off on a belt) leaves the tree and the
+# same body comes back later as some other straw. We held on to it and kept
+# moving it, read its position out of the tree, and in the end handed it back
+# to the pool again while something else was using it: a belt, a hand, a
+# machine. That is the crash guests got while the host was building. So let go
+# of a body the moment it leaves, whoever took it.
+func _watch(b: Node) -> void:
+	var id := b.get_instance_id()
+	if _watched.has(id):
+		return
+	_watched[id] = true
+	b.tree_exiting.connect(_on_body_left.bind(b))
+
+
+func _on_body_left(b: Node) -> void:
+	if not is_instance_valid(b):
+		return
+	var gid := int(b.get_meta("mp_gid", 0))
+	if gid != 0 and _ghost.get(gid) == b:
+		_ghost.erase(gid)
+		_goal.erase(gid)
+		_owner.erase(gid)
+	var sid := int(b.get_meta("mp_sid", 0))
+	if sid != 0 and _mine.get(sid) == b:
+		_mine.erase(sid)
+		_sent.erase(sid)
+		if mp != null and mp.active() and multiplayer.multiplayer_peer != null:
+			mp._rx_straw_del.rpc(PackedInt64Array([sid]))
+	for pid in _hands:
+		(_hands[pid] as Array).erase(b)
+	# the pool does not clear what we put on it, and the next straw made from
+	# this body is nobody's copy
+	for key in ["mp_ghost", "mp_gid", "mp_sid"]:
+		if b.has_meta(key):
+			b.remove_meta(key)
 
 
 func _new_sid() -> int:
@@ -148,6 +187,7 @@ func _scan() -> void:
 			sid = _new_sid()
 			b.set_meta("mp_sid", sid)
 			_mine[sid] = b
+			_watch(b)
 			seen[sid] = true
 			_sent[sid] = body.global_transform
 			adds.append([sid, body.global_transform,
@@ -223,12 +263,13 @@ func on_add(sender: int, adds: Array) -> void:
 		_place(b, xf)
 		_ghost[sid] = b
 		_owner[sid] = sender
+		_watch(b)
 
 
 func on_move(ids: PackedInt64Array, rows: PackedFloat32Array) -> void:
 	for i in ids.size():
 		var b: Variant = _ghost.get(ids[i])
-		if b == null or not is_instance_valid(b):
+		if b == null or not is_instance_valid(b) or not (b as Node3D).is_inside_tree():
 			continue
 		var k := i * 7
 		if k + 6 >= rows.size():
@@ -321,6 +362,7 @@ func set_hand(pid: int, count: int) -> void:
 			break
 		b.set_meta("mp_ghost", true)
 		held.append(b)
+		_watch(b)
 	if held.is_empty():
 		_hands.erase(pid)
 	else:
@@ -343,7 +385,7 @@ func _park_hands() -> void:
 		var held: Array = _hands[pid]
 		for i in held.size():
 			var b: Variant = held[i]
-			if b == null or not is_instance_valid(b):
+			if b == null or not is_instance_valid(b) or not (b as Node3D).is_inside_tree():
 				continue
 			var side := (float(i) - float(held.size() - 1) * 0.5) * HAND_FAN
 			var xf := base * Transform3D(Basis(Vector3.UP, side * 1.6),
@@ -428,7 +470,7 @@ func _ease(delta: float) -> void:
 	var done: Array = []
 	for sid in _goal:
 		var b: Variant = _ghost.get(sid)
-		if b == null or not is_instance_valid(b):
+		if b == null or not is_instance_valid(b) or not (b as Node3D).is_inside_tree():
 			done.append(sid)
 			continue
 		var walk: Array = _goal[sid]
