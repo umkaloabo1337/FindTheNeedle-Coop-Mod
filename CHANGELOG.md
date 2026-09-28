@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+* Hay a guest drops on a belt now gets there. The guest's own belt took the
+  item and the host's next belt snapshot wiped it, so it was gone before any
+  machine could see it. The guest now hands it to the host at the spot where
+  it landed, the host's belt carries it, and the machine at the end takes it
+  like any other hay.
+* Contracts are run by the host only. Every player used to run their own:
+  their own truck on their own timer, their own count of what was loaded, and
+  a finished order paid on the guest too, which reached the host as more
+  money, so the bonus came twice. The guest's truck, its load and the board
+  now follow the host's. A guest's bale loaded into the truck also counted
+  over and over, because the host asked the guest to send it back after
+  loading it; it is now gone for everyone once the truck takes it.
+* Steam games go through Steam's relays only. The crash some players get a
+  while after joining, or when building, was traced by one of them to an
+  assert in Steam's direct peer-to-peer code (m_pTransportICE), which takes the
+  whole game down; that code is now switched off. Relays add a few ms and keep
+  players' IP addresses private.
+* Steam's send buffer is 8 MB instead of 512 KB. The world goes to a guest in
+  one go, and a big yard did not fit, so Steam refused the rest of it.
+
 ## v0.17.0
 
 * Hay a guest loads into a machine finally counts. A machine skips a frozen

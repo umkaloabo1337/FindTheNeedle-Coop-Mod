@@ -60,6 +60,7 @@ var props_sync: Node  # loose item replication
 var belts_sync: Node  # what is riding on the belts
 var machines_sync: Node  # how the machines move and what they are set to
 var strands_sync: Node  # loose straw on the ground
+var contracts_sync: Node  # the delivery truck and its contract
 var _pose_t := 0.0
 
 var _hay_base := PackedFloat32Array()
@@ -108,6 +109,10 @@ func _ready() -> void:
 	strands_sync.name = "MPStrands"
 	add_child(strands_sync)
 	strands_sync.start(mp, world)
+	contracts_sync = (load(mp.base_dir + "/mp_contracts.gd") as Script).new()
+	contracts_sync.name = "MPContracts"
+	add_child(contracts_sync)
+	contracts_sync.start(mp, world)
 	if field != null:
 		field.cells_redrawn.connect(_on_cells_redrawn)
 	if builds != null:
@@ -138,6 +143,8 @@ func shutdown() -> void:
 		machines_sync.shutdown()
 	if strands_sync != null and is_instance_valid(strands_sync):
 		strands_sync.shutdown()
+	if contracts_sync != null and is_instance_valid(contracts_sync):
+		contracts_sync.shutdown()
 	clear_avatars()
 	if is_instance_valid(_me):
 		_me.queue_free()
