@@ -67,6 +67,7 @@ var belts_sync: Node  # what is riding on the belts
 var machines_sync: Node  # how the machines move and what they are set to
 var strands_sync: Node  # loose straw on the ground
 var contracts_sync: Node  # the delivery truck and its contract
+var boards_sync: Node  # what is drawn on the paint boards
 var _pose_t := 0.0
 
 var _hay_base := PackedFloat32Array()
@@ -125,6 +126,10 @@ func _ready() -> void:
 	contracts_sync.name = "MPContracts"
 	add_child(contracts_sync)
 	contracts_sync.start(mp, world)
+	boards_sync = (load(mp.base_dir + "/mp_boards.gd") as Script).new()
+	boards_sync.name = "MPBoards"
+	add_child(boards_sync)
+	boards_sync.start(mp, world)
 	if field != null:
 		field.cells_redrawn.connect(_on_cells_redrawn)
 	if builds != null:
@@ -160,6 +165,8 @@ func shutdown() -> void:
 		strands_sync.shutdown()
 	if contracts_sync != null and is_instance_valid(contracts_sync):
 		contracts_sync.shutdown()
+	if boards_sync != null and is_instance_valid(boards_sync):
+		boards_sync.shutdown()
 	clear_avatars()
 	if is_instance_valid(_me):
 		_me.queue_free()
@@ -1049,6 +1056,8 @@ func send_full_sync(pid: int) -> void:
 		props_sync.send_all(pid)
 	if belts_sync != null and is_instance_valid(belts_sync):
 		belts_sync.send_all(pid)
+	if boards_sync != null and is_instance_valid(boards_sync):
+		boards_sync.send_all(pid)
 	if machines_sync != null and is_instance_valid(machines_sync):
 		machines_sync.send_all(pid)
 

@@ -446,6 +446,31 @@ func _watch_hand() -> void:
 		mp._rx_straw_claim.rpc(sid)
 
 
+# Host only. A guest's straw landed in one of our machines' mouths. Our copy is
+# frozen and a machine will not eat a frozen straw, so make it a real straw of
+# ours, the way picking one up does, and the guest drops theirs. The machine
+# takes it on its own tick and it burns once, here.
+func host_take(b: Variant) -> bool:
+	if not mp.is_host or b == null or not is_instance_valid(b):
+		return false
+	var sid := int((b as Node).get_meta("mp_gid", 0))
+	if sid == 0 or _ghost.get(sid) != b:
+		return false
+	_ghost.erase(sid)
+	_goal.erase(sid)
+	_owner.erase(sid)
+	b.remove_meta("mp_ghost")
+	b.remove_meta("mp_gid")
+	# a copy is made as a protected, visual only straw; this one is loose hay
+	b.set_meta(LiveStrandManager.META_PROTECTED, false)
+	b.collision_mask = LiveStrandManager.STRAND_MASK
+	b.continuous_cd = true
+	b.freeze = false
+	b.sleeping = false
+	mp._rx_straw_claim.rpc(sid)
+	return true
+
+
 func on_claim(sender: int, sid: int) -> void:
 	if sender == _me():
 		return
