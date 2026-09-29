@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.19.3
+
+* The guest crash within minutes of joining (reported in #15 by oogienl,
+  thank you) is fixed since 0.19.2: an `as` cast on a machine part the game
+  had already freed, in `_fx_of()`. A two-player session over Steam on
+  0.19.2 ran with no crash.
+* Machines a host puts up no longer stay a half-built green hologram on the
+  guest's screen. While a machine is being built, the game swaps its
+  materials for the build hologram, and the mod read and copied that as the
+  machine's own, so the guest got the hologram's values and the game never
+  put the real material back. The build hologram is now left alone.
+* Loose straw a guest throws into a machine's hopper is taken now. On the
+  host it was a frozen copy, and a machine will not eat a frozen straw. The
+  host now makes it a real straw of its own and its machine eats it once.
+* What is drawn on a paint board shows on everyone's board. A finished
+  stroke, an erase or a wipe goes to the others, and a player who joins
+  gets the boards as they are. A board showing a drawing from a player's
+  own sketchbook is left alone, since the sketchbook is personal.
+
 ## v0.19.2
 
 * Over Steam, machine updates go out in small pieces. Both guest crashes

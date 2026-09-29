@@ -673,6 +673,8 @@ func _feed_mouths() -> void:
 	var props: Node = mp.world_sync.props_sync if mp.world_sync != null else null
 	if props == null or not is_instance_valid(props):
 		return
+	# loose straw thrown in by a guest, not only their items
+	var straws: Node = mp.world_sync.strands_sync
 	var watchers := _watchers()
 	if watchers.is_empty():
 		return
@@ -687,7 +689,8 @@ func _feed_mouths() -> void:
 			if not (a is Area3D) or not (a as Area3D).is_inside_tree():
 				continue
 			for body in (a as Area3D).get_overlapping_bodies():
-				props.host_take(body)
+				if not props.host_take(body) and straws != null and is_instance_valid(straws):
+					straws.host_take(body)
 
 
 # Host: a guest worked a panel. The machine is ours to run, so apply it here and
@@ -808,6 +811,10 @@ func _shader_of(n: Node3D) -> Variant:
 		return null
 	var g := n as GeometryInstance3D
 	if g.material_override is ShaderMaterial:
+		# the build hologram, while a machine is being put up: it belongs to
+		# BuildFx, which hands the real material back when it is done
+		if _is_build_glow(g.material_override):
+			return null
 		return g.material_override
 	if n is MeshInstance3D:
 		var mi := n as MeshInstance3D
@@ -818,6 +825,16 @@ func _shader_of(n: Node3D) -> Variant:
 		and mi.mesh.surface_get_material(0) is ShaderMaterial:
 			return mi.mesh.surface_get_material(0)
 	return null
+
+
+# While a machine is being put up, BuildFx swaps every mesh's material for its
+# green hologram and puts the real one back when it is done, but only on a
+# mesh still wearing that hologram. We used to copy it as the part's "own"
+# material, so the game never gave the real one back and the machine stayed a
+# half-built hologram for good.
+func _is_build_glow(mat: Variant) -> bool:
+	return mat is ShaderMaterial and BuildFx._shader != null \
+		and (mat as ShaderMaterial).shader == BuildFx._shader
 
 
 # -1 as the slot means the light's strength, 0 and up are shader values
@@ -889,7 +906,7 @@ func on_fx(key: String, ids: PackedInt32Array, vals: PackedFloat32Array) -> void
 # Give the part its own copy the first time we write to it.
 func _own_material(key: String, at: int, d: Dictionary) -> ShaderMaterial:
 	var mat: ShaderMaterial = d["mat"]
-	if mat.has_meta("mp_own"):
+	if mat.has_meta("mp_own") or _is_build_glow(mat):
 		return mat
 	var parts := _parts_of(key)
 	if at < 0 or at >= parts.size() or parts[at] == null or not is_instance_valid(parts[at]) \

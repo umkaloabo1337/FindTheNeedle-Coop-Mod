@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.19.2"
+const VERSION := "0.19.3"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8  # players in a session, host included (Steam counts the same way)
 const WORLD_CHUNK := 60000
@@ -78,7 +78,7 @@ func _ready() -> void:
 			test.mp = self
 			add_child(test)
 	for f in ["mp_world.gd", "mp_avatar.gd", "mp_i18n.gd", "mp_props.gd",
-			"mp_machines.gd", "mp_strands.gd", "mp_contracts.gd", "mp_trace.gd"]:
+			"mp_machines.gd", "mp_strands.gd", "mp_contracts.gd", "mp_trace.gd", "mp_boards.gd"]:
 		var s: Script = load(base_dir + "/" + f)
 		if s == null or not s.can_instantiate():
 			push_error("[MPMod] %s failed to compile" % f)
@@ -897,6 +897,15 @@ func _rx_machine_edit(batch: Dictionary) -> void:
 	if not is_host or world_sync == null or world_sync.machines_sync == null:
 		return
 	world_sync.machines_sync.on_edit(multiplayer.get_remote_sender_id(), batch)
+
+
+# A piece of a paint board's drawing; boards_sync puts the pieces together.
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _rx_board(key: String, id: int, i: int, n: int, raw_size: int, piece: PackedByteArray) -> void:
+	_trace("board", piece.size())
+	if world_sync == null or world_sync.boards_sync == null:
+		return
+	world_sync.boards_sync.on_piece(key, id, i, n, raw_size, piece)
 
 
 @rpc("authority", "call_remote", "reliable", 0)
