@@ -100,6 +100,9 @@ translations, so they read the same as in the rest of the UI.
 * Bought tools are per player. Money is shared.
 * Only the host saves. Clients never write to their own save files.
 * The online leaderboard is disabled while the mod is loaded.
+* Money can dip below zero if two players spend at the same moment.
+* Who holds a loose needle is shared; where one lies can differ a little
+  between players until someone picks it up.
 
 ## Troubleshooting
 
@@ -155,6 +158,7 @@ mods/multiplayer/     what ships in the release
   models/             farmer model (CC0)
   steam/              GodotSteam GDExtension (prebuilt)
 dev/mp_test.gd        test harness, not shipped
+dev/mp_sync_test.gd   two-player sync checks, not shipped
 dev/avatar_calib.gd   live avatar height tuning, not shipped
 dev/tool_poser.gd     place held tools on the farmer by hand, not shipped
 dev/tool_poser.bat    starts the game with the tool poser
@@ -182,6 +186,11 @@ To use the test harness, copy `dev/mp_test.gd` next to `mp.gd` and start the
 game with `MP_TEST_AVATAR=user://saves/slot_1.dat` set, plus `MP_TEST_TOOL=1`
 for the spade. It drops two puppets holding that tool, one of them flipped, and
 writes a screenshot.
+
+`dev/mp_sync_test.gd` runs a host and a guest on one PC over the IP
+connection and checks that the pile, money, missions, tech, needles and
+buildings agree. Copy it next to `mp.gd` as `mp_test.gd`; how to start both
+is at the top of the file.
 
 `dev/avatar_calib.gd` puts a farmer in front of you that copies your look and
 crouch, so you can tune `MODEL_HEIGHT` and `CROUCH_DROP` with the arrow keys

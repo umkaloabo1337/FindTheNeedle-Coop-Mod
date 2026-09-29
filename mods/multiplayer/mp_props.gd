@@ -129,6 +129,12 @@ func _adopt_all() -> void:
 
 
 func _adopt(item: Node, id: int, owner: int) -> void:
+	# Ids are peer * 1e6 + a counter that starts over with every world load.
+	# After a resync the host still lists items we made before it, so carry on
+	# counting from the highest of ours, or a new item takes an old one's id
+	# and the others just move the old one to where the new one is.
+	if id / 1000000 == _me():
+		_next = maxi(_next, id % 1000000)
 	item.set_meta("mp_id", id)
 	_by_id[id] = item
 	_owner[id] = owner

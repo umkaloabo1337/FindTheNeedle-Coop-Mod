@@ -26,7 +26,7 @@ signal lobby_members_changed()
 func setup(base_dir: String) -> Dictionary:
 	if available:
 		return {"ok": true, "status": load_status}
-	_write_app_id_file()
+	_set_app_id()
 	if not ClassDB.class_exists("SteamMultiplayerPeer") and not Engine.has_singleton("Steam"):
 		var path := base_dir + "/steam/godotsteam.gdextension"
 		if not FileAccess.file_exists(path):
@@ -40,7 +40,9 @@ func setup(base_dir: String) -> Dictionary:
 		load_status = "la librería cargó pero no registró Steam"
 		return {"ok": false, "status": load_status}
 	steam = Engine.get_singleton("Steam")
-	var res: Variant = steam.call("steamInitEx", APP_ID, true)
+	# callbacks are run from _process below (it keeps going while the game is
+	# paused); letting GodotSteam embed them as well ran every callback twice
+	var res: Variant = steam.call("steamInitEx", APP_ID, false)
 	var code := 0
 	var verbal := ""
 	if res is Dictionary:
@@ -99,15 +101,13 @@ func _set_global(key: String, value_name: String, value: int = 0) -> void:
 	print("[MPMod] steam: %s = %d (%s)" % [key, value, "ok" if ok else "refused"])
 
 
-func _write_app_id_file() -> void:
-	# lets Steam identify the game when it is launched outside the Steam client
-	var path := OS.get_executable_path().get_base_dir() + "/steam_appid.txt"
-	if FileAccess.file_exists(path):
-		return
-	var f := FileAccess.open(path, FileAccess.WRITE)
-	if f != null:
-		f.store_string(str(APP_ID))
-		f.close()
+# Lets Steam identify the game when it is launched outside the Steam client.
+# Steam reads these the same way it reads a steam_appid.txt, and this way
+# nothing is written into the game folder.
+func _set_app_id() -> void:
+	for key in ["SteamAppId", "SteamGameId"]:
+		if OS.get_environment(key) == "":
+			OS.set_environment(key, str(APP_ID))
 
 
 func _connect_signals() -> void:

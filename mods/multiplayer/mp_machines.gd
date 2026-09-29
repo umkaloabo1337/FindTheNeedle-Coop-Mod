@@ -109,6 +109,13 @@ var _field_t := 0.0
 var _edit_t := 0.0
 var _mouth_t := 0.0
 var _theirs := {}   # guest: key -> the settings as the host last stated them
+var _alias := {}    # a key from the host -> our key for the same machine
+var _rescan_at := -100000  # msec, last rescan forced by a key we did not know
+# a key naming a machine we do not have (yet): skip it until then instead of
+# walking every machine again for every packet that mentions it
+const UNKNOWN_KEY_WAIT := 1000
+const KEY_SLACK := 0.25   # metres: the same machine, placed on both sides
+const BIG_PACKET := 1000  # compressed bytes; past this a packet goes reliable
 
 
 func start(mp_node: Node, world_node: Node) -> void:
@@ -161,15 +168,57 @@ func _rescan() -> void:
 				var key := _key(String(group), n)
 				_nodes[key] = n
 				_group[key] = String(group)
-	for key in _parts.keys():
-		if not _nodes.has(key):
-			_parts.erase(key)
-			_ids.erase(key)
-			_slot.erase(key)
-			_sent.erase(key)
-			_flags.erase(key)
-			_vals.erase(key)
-			_goal.erase(key)
+	# forget machines that are gone (this used to run over _parts after it was
+	# cleared, so it never did anything and every demolished machine's state
+	# stayed behind for good)
+	for d in [_sent, _flags, _vals, _goal, _fx_sent, _theirs]:
+		for key in (d as Dictionary).keys():
+			if not _nodes.has(key):
+				(d as Dictionary).erase(key)
+	for key in _alias.keys():
+		if not _nodes.has(_alias[key]):
+			_alias.erase(key)
+
+
+# Our key for a machine the host named. Both sides place a machine from the
+# same save data, but its position can come out a hair different, and the key
+# is built from it; so an exact miss falls back to the nearest machine of the
+# same kind. A key that matches nothing waits a second before the next rescan.
+func _local_key(key: String) -> String:
+	if _nodes.has(key):
+		return key
+	var known: String = _alias.get(key, "")
+	if known != "" and _nodes.has(known):
+		return known
+	var now := Time.get_ticks_msec()
+	if now - _rescan_at >= UNKNOWN_KEY_WAIT:
+		_rescan_at = now
+		_rescan()
+		if _nodes.has(key):
+			return key
+	var bar := key.find("|")
+	if bar < 0:
+		return ""
+	var group := key.substr(0, bar)
+	var xyz := key.substr(bar + 1).split(",")
+	if xyz.size() != 3:
+		return ""
+	var at := Vector3(float(xyz[0]), float(xyz[1]), float(xyz[2]))
+	var best := ""
+	var best_d := KEY_SLACK * KEY_SLACK
+	for k in _nodes:
+		if _group.get(k, "") != group:
+			continue
+		var n: Variant = _nodes[k]
+		if n == null or not is_instance_valid(n):
+			continue
+		var d := (n as Node3D).global_position.distance_squared_to(at)
+		if d < best_d:
+			best_d = d
+			best = k
+	if best != "":
+		_alias[key] = best
+	return best
 
 
 func _key(group: String, n: Node3D) -> String:
@@ -368,7 +417,14 @@ func _send_poses() -> void:
 				(e.get("f", PackedInt32Array()) as PackedInt32Array).size() / 2,
 				(e.get("xv", PackedFloat32Array()) as PackedFloat32Array).size()])
 	var raw := var_to_bytes(batch)
-	mp._rx_machines.rpc(raw.compress(FileAccess.COMPRESSION_ZSTD), raw.size())
+	var packed := raw.compress(FileAccess.COMPRESSION_ZSTD)
+	# One machine's full pose is already bigger than a packet. Sent unreliably,
+	# losing any fragment lost the whole batch, so big batches and the
+	# periodic full refresh go on the reliable channel instead.
+	if _full or packed.size() > BIG_PACKET:
+		mp._rx_machines_big.rpc(packed, raw.size())
+	else:
+		mp._rx_machines.rpc(packed, raw.size())
 
 
 # bit 0: the part is drawn. bit 1: its particles are running.
@@ -424,20 +480,19 @@ func on_poses(packed: PackedByteArray, raw_size: int) -> void:
 	var batch: Variant = bytes_to_var(packed.decompress(raw_size, FileAccess.COMPRESSION_ZSTD))
 	if not (batch is Dictionary):
 		return
-	for key in batch:
-		if not _nodes.has(key):
-			_rescan()
-			if not _nodes.has(key):
-				if _log:
-					print("[MPMACH] got %s but no machine of mine matches" % key)
-				continue
+	for host_key in batch:
+		var key := _local_key(String(host_key))
+		if key == "":
+			if _log:
+				print("[MPMACH] got %s but no machine of mine matches" % host_key)
+			continue
 		var parts := _parts_of(key)
 		if parts.is_empty():
 			if _log:
 				print("[MPMACH] got %s but walked no parts" % key)
 			continue
 		var slot := _slot_of(key)
-		var entry: Dictionary = batch[key]
+		var entry: Dictionary = batch[host_key]
 		if entry.has("f"):
 			var flags: PackedInt32Array = entry["f"]
 			var k := 0
@@ -497,13 +552,12 @@ func _set_flags(n: Node3D, f: int) -> void:
 
 
 func on_fields(batch: Dictionary) -> void:
-	for key in batch:
-		if not _nodes.has(key):
-			_rescan()
+	for host_key in batch:
+		var key := _local_key(String(host_key))
 		var n: Variant = _nodes.get(key)
 		if n == null or not is_instance_valid(n):
 			continue
-		var diff: Dictionary = batch[key]
+		var diff: Dictionary = batch[host_key]
 		# remember what the host says, so a guest can tell a setting the player
 		# just changed from one the host handed down
 		var known: Dictionary = _theirs.get(key, {})
@@ -581,14 +635,13 @@ func _feed_mouths() -> void:
 func on_edit(from: int, batch: Dictionary) -> void:
 	if not mp.is_host or not mp.players.has(from):
 		return
-	for key in batch:
-		if not _nodes.has(key):
-			_rescan()
+	for guest_key in batch:
+		var key := _local_key(String(guest_key))
 		var n: Variant = _nodes.get(key)
 		if n == null or not is_instance_valid(n):
 			continue
 		var names: Array = SETTINGS.get(_group.get(key, ""), [])
-		var diff: Dictionary = batch[key]
+		var diff: Dictionary = batch[guest_key]
 		var was: Dictionary = _vals.get(key, {})
 		for f in diff:
 			# only ever the settings: a guest does not get to set our stock
@@ -764,7 +817,30 @@ func on_fx(key: String, ids: PackedInt32Array, vals: PackedFloat32Array) -> void
 			continue
 		var names: PackedStringArray = d["names"]
 		if which < names.size():
-			(d["mat"] as ShaderMaterial).set_shader_parameter(names[which], v)
+			_own_material(key, at, d).set_shader_parameter(names[which], v)
+
+
+# A machine's shader material is often the mesh's own, shared by every copy of
+# that machine, so one machine's smoke or glow set here showed on all of them.
+# Give the part its own copy the first time we write to it.
+func _own_material(key: String, at: int, d: Dictionary) -> ShaderMaterial:
+	var mat: ShaderMaterial = d["mat"]
+	if mat.has_meta("mp_own"):
+		return mat
+	var parts := _parts_of(key)
+	if at < 0 or at >= parts.size() or not (parts[at] is GeometryInstance3D):
+		return mat
+	var own := mat.duplicate() as ShaderMaterial
+	own.set_meta("mp_own", true)
+	var g := parts[at] as GeometryInstance3D
+	if g.material_override == mat:
+		g.material_override = own
+	elif g is MeshInstance3D:
+		(g as MeshInstance3D).set_surface_override_material(0, own)
+	else:
+		return mat
+	d["mat"] = own
+	return own
 
 
 # Where a part hangs, as a name both sides work out the same way. Nodes the

@@ -11,11 +11,14 @@ extends Node
 # would turn the same hay into two bales.
 
 const TICK := 0.25
+const FULL_TICK := 2.0  # the list goes out at least this often, changed or not
 const MAX_RAW := 8 << 20
 
 var mp: Node
 var world: Node
 var _t := 0.0
+var _since := 0.0
+var _last_hash := 0
 
 
 func start(mp_node: Node, world_node: Node) -> void:
@@ -44,12 +47,15 @@ func _process(delta: float) -> void:
 	if mp.players.size() < 2:
 		return
 	_t += delta
+	_since += delta
 	if _t < TICK:
 		return
 	_t = 0.0
 	send_all()
 
 
+# Everyone, or one guest that just came in. Unchanged lists are skipped: an
+# idle yard used to send the whole ride list four times a second.
 func send_all(pid: int = 0) -> void:
 	var entries: Array = BeltPath.belts_to_array()
 	# the transform is only there for the "could not board it" fallback, which
@@ -62,6 +68,12 @@ func send_all(pid: int = 0) -> void:
 				if row.get("state") is Dictionary and (row["state"] as Dictionary).is_empty():
 					row.erase("state")
 	var raw := var_to_bytes(entries)
+	if pid == 0:
+		var h := hash(raw)
+		if h == _last_hash and _since < FULL_TICK:
+			return
+		_last_hash = h
+		_since = 0.0
 	var packed := raw.compress(FileAccess.COMPRESSION_ZSTD)
 	if pid > 0:
 		mp._rx_belts.rpc_id(pid, packed, raw.size())

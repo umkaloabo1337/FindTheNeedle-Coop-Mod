@@ -99,7 +99,15 @@ func on_state(s: Dictionary) -> void:
 	var done := {}
 	for id in s.get("done", []):
 		done[str(id)] = true
-	if done.size() != GameState.contracts_done.size():
+	# which contracts, not how many: one finished on each side kept the count
+	# equal and the list wrong
+	var theirs: Array = done.keys()
+	theirs.sort()
+	var ours: Array = []
+	for id in GameState.contracts_done:
+		ours.append(str(id))
+	ours.sort()
+	if theirs != ours:
 		GameState.contracts_done = done
 		GameState.contracts_changed.emit()
 	if tr != null:

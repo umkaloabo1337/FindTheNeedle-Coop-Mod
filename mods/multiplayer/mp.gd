@@ -3,9 +3,9 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.18.1"
+const VERSION := "0.19.0"
 const DEFAULT_PORT := 7777
-const MAX_PEERS := 8
+const MAX_PEERS := 8  # players in a session, host included (Steam counts the same way)
 const WORLD_CHUNK := 60000
 const SESSION_DIR := "user://mp_session"
 const SETTINGS_PATH := "user://mp_settings.cfg"
@@ -49,6 +49,7 @@ func _ready() -> void:
 	base_dir = get_script().resource_path.get_base_dir()
 	i18n = load(base_dir + "/mp_i18n.gd").new()
 	_load_settings()
+	_mp_guard_online_services()
 	ui = load(base_dir + "/mp_ui.gd").new()
 	ui.mp = self
 	add_child(ui)
@@ -107,6 +108,7 @@ func is_menu(n: Node) -> bool:
 
 func _on_scene_changed(cs: Node) -> void:
 	_stop_world_sync()
+	_stay_last.call_deferred()
 	_world_watch = null
 	if is_menu(cs):
 		ui.hook_menu(cs)
@@ -144,6 +146,22 @@ func _start_world_sync(world: Node) -> void:
 		_rx_client_ready.rpc_id(1)
 
 
+# When the game quits, Godot takes the scene tree down from the last child of
+# the root to the first, so a new scene (added after us) went first and the
+# world was pulled down with our guest-side changes still in it: the straw
+# copies we put back into the physics world by hand, the stopped machines, the
+# frozen puppets. That crashed a guest on every quit. Staying the root's last
+# child means we go first and undo all of it while the world is still whole.
+func _stay_last() -> void:
+	var root := get_tree().root
+	if get_parent() == root and get_index() != root.get_child_count() - 1:
+		root.move_child(self, root.get_child_count() - 1)
+
+
+func _exit_tree() -> void:
+	_stop_world_sync()
+
+
 func _stop_world_sync() -> void:
 	if world_sync != null:
 		world_sync.shutdown()
@@ -167,6 +185,8 @@ func _start_steam() -> void:
 	var res: Dictionary = steam.setup(base_dir)
 	print("[MPMod] steam: ", res["status"])
 	if not res["ok"]:
+		if _custom_name == "":
+			my_name = default_name()
 		ui.refresh()
 		return
 	if _custom_name == "":
@@ -278,7 +298,7 @@ func host(port: int) -> bool:
 	if active():
 		leave()
 	var peer := ENetMultiplayerPeer.new()
-	var err := peer.create_server(port, MAX_PEERS)
+	var err := peer.create_server(port, MAX_PEERS - 1)
 	if err != OK:
 		ui.notify(t("port_failed") % [port, err])
 		return false
@@ -332,6 +352,7 @@ func leave(reason: String = "") -> void:
 	if was_client:
 		SaveManager.block_save = false
 		SaveManager.use_player_saves()
+	release_profile()
 	if reason != "":
 		ui.notify(reason)
 	ui.refresh()
@@ -345,6 +366,41 @@ func _mp_guard_online_services() -> void:
 	var lb := get_node_or_null("/root/Leaderboard")
 	if lb != null and "enabled" in lb:
 		lb.enabled = false
+
+
+# Career stats. The shared GameState carries everyone's digging, selling and
+# needles, and the game's Profile adds up whatever GameState gains, so a
+# session would credit each player with the whole team's work. While a session
+# runs the profile is held: pending stats are written first, then nothing is
+# saved; when the session ends the profile is read back from disk, which drops
+# the team's totals, and the yard is re-baselined so solo play counts again.
+var _profile_held := false
+
+
+func hold_profile() -> void:
+	if _profile_held:
+		return
+	var pf := get_node_or_null("/root/Profile")
+	if pf == null or not ("_inert" in pf):
+		return
+	if not bool(pf.get("_inert")) and pf.has_method("save_profile"):
+		pf.save_profile()
+	pf.set("_inert", true)
+	_profile_held = true
+
+
+func release_profile() -> void:
+	if not _profile_held:
+		return
+	_profile_held = false
+	var pf := get_node_or_null("/root/Profile")
+	if pf == null:
+		return
+	pf.set("_inert", false)
+	if pf.has_method("load_profile"):
+		pf.load_profile()
+	if in_world() and bool(pf.get("_in_yard")) and pf.has_method("enter_yard"):
+		pf.enter_yard()
 
 
 func _on_peer_connected(id: int) -> void:
@@ -591,7 +647,21 @@ func _rx_pose(pos: Vector3, yaw: float, pitch: float, tool: int, crouch: float, 
 @rpc("any_peer", "call_remote", "reliable", 3)
 func _rx_hay(idx: PackedInt32Array, vals: PackedFloat32Array) -> void:
 	if world_sync != null:
-		world_sync.on_hay(idx, vals)
+		world_sync.on_hay(multiplayer.get_remote_sender_id(), idx, vals)
+
+
+# Host -> guest: a checksum per block of the pile, so a guest can find where it
+# drifted from the host and ask for just those blocks.
+@rpc("authority", "call_remote", "reliable", 3)
+func _rx_hay_sums(sums: PackedFloat32Array) -> void:
+	if world_sync != null:
+		world_sync.on_hay_sums(sums)
+
+
+@rpc("any_peer", "call_remote", "reliable", 3)
+func _rx_hay_want(blocks: PackedInt32Array) -> void:
+	if is_host and world_sync != null:
+		world_sync.on_hay_want(multiplayer.get_remote_sender_id(), blocks)
 
 
 @rpc("any_peer", "call_remote", "reliable", 0)
@@ -613,9 +683,9 @@ func _rx_state_snap(ack: int, snap: Dictionary) -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable", 0)
-func _rx_tech(id: String, rank: int) -> void:
+func _rx_tech(id: String, rank: int, paid: bool) -> void:
 	if world_sync != null:
-		world_sync.on_tech(id, rank)
+		world_sync.on_tech(multiplayer.get_remote_sender_id(), id, rank, paid)
 
 
 @rpc("authority", "call_remote", "reliable", 0)
@@ -625,15 +695,24 @@ func _rx_full_sync(heights: PackedFloat32Array, builds: Array, tech: Dictionary,
 
 
 @rpc("any_peer", "call_remote", "reliable", 0)
-func _rx_new_pile_request() -> void:
+func _rx_new_pile_request(on_credit: bool) -> void:
 	if is_host and world_sync != null:
-		world_sync.host_new_pile_for_client(multiplayer.get_remote_sender_id())
+		world_sync.host_new_pile_for_client(multiplayer.get_remote_sender_id(), on_credit)
 
 
-@rpc("any_peer", "call_remote", "reliable", 3)
-func _rx_needle(kind: String, idx: int, pos: Vector3) -> void:
+# Host -> everyone: what happened to a loose needle. The host decides who holds
+# it, so two players grabbing the same needle cannot both hand it in.
+@rpc("authority", "call_remote", "reliable", 3)
+func _rx_needle(kind: String, idx: int, pos: Vector3, holder: int) -> void:
 	if world_sync != null:
-		world_sync.on_needle(kind, idx, pos)
+		world_sync.on_needle(kind, idx, pos, holder)
+
+
+# Guest -> host: a guest picked a needle up, put it down or used it up.
+@rpc("any_peer", "call_remote", "reliable", 3)
+func _rx_needle_req(kind: String, idx: int, pos: Vector3) -> void:
+	if is_host and world_sync != null:
+		world_sync.on_needle_req(multiplayer.get_remote_sender_id(), kind, idx, pos)
 
 
 @rpc("any_peer", "call_remote", "reliable", 0)
@@ -738,6 +817,16 @@ func _rx_machines(packed: PackedByteArray, raw_size: int) -> void:
 	world_sync.machines_sync.on_poses(packed, raw_size)
 
 
+# The same, for batches too big for one packet (a lost fragment would drop the
+# whole batch on the unreliable channel) and the periodic full refresh. Channel
+# 1 only carries the world at join time, so this never holds up anything else.
+@rpc("authority", "call_remote", "reliable", 1)
+func _rx_machines_big(packed: PackedByteArray, raw_size: int) -> void:
+	if world_sync == null or world_sync.machines_sync == null:
+		return
+	world_sync.machines_sync.on_poses(packed, raw_size)
+
+
 @rpc("authority", "call_remote", "reliable", 0)
 func _rx_machine_fields(batch: Dictionary) -> void:
 	if world_sync == null or world_sync.machines_sync == null:
@@ -816,7 +905,10 @@ func _load_settings() -> void:
 		_custom_name = str(c.get_value("mp", "custom_name", ""))
 		last_ip = str(c.get_value("mp", "ip", last_ip))
 		last_port = int(c.get_value("mp", "port", DEFAULT_PORT))
-	my_name = _custom_name if _custom_name != "" else default_name()
+	# the Steam persona replaces this once Steam is up (see _start_steam); the
+	# slower lookup in default_name() only runs when Steam is not available
+	var user := OS.get_environment("USERNAME").substr(0, 24)
+	my_name = _custom_name if _custom_name != "" else (user if user != "" else t("default_name"))
 
 
 func _save_settings() -> void:
