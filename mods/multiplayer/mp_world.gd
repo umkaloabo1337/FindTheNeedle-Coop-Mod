@@ -16,13 +16,19 @@ const HAY_EPS := 0.002
 const HAY_BATCH := 6000
 const BUILD_TICK := 0.4
 const STATE_TICK := 0.25
+# The host sends a checksum per 16x16-vertex block of the pile this often. A
+# guest compares it with its own pile and asks for the blocks that drifted.
+const HAY_SUM_TICK := 4.0
+const HAY_BLOCK := 16
+# metres of height summed over a block before it counts as drifted: well above
+# the HAY_EPS rounding every vertex is allowed, well below any real dig
+const HAY_SUM_TOL := 0.5
 
-# Buildings that feed themselves from the pile or the world. On clients these
-# stay frozen so nothing is dug, scanned or sold twice (the host runs them).
-# Machines that take hay out of the pile or off a belt and turn it into
-# something. They run on the host only: the belts and the items they make are
-# sent out, so running them twice would just duplicate the work. Conveyors,
-# lifts, generators and the rest of the yard keep running everywhere.
+# Machines that dig, scan, route, lift or turn hay into something, and the
+# cabinets and radars. They run on the host only: their motion, settings, belt
+# contents and the items they make are sent out, so running them twice would
+# count the same hay twice. Conveyors, decks, walls and lamps stay live
+# everywhere.
 const CLIENT_FROZEN := ["piston_rakes", "robotic_arms", "hay_drones", "scanners",
 	"compressors", "pulpers", "papers", "briquette_presses", "wrappers", "silos",
 	"pelletizers", "tube_launchers", "dump_hatches", "needle_radars",
@@ -80,6 +86,12 @@ var _peer_ack := {}
 var _state_t := 0.0
 var _tech_mute := false
 var _needles := {}  # needle index -> "free" | "held" | "away"
+var _holder := {}  # host: needle index -> peer holding it
+var _last_at := {}  # peer -> where its last pose put it (outlives the avatar)
+var _hay_sum_t := 0.0
+var _tech_queue := {}  # tech id -> rank changed this frame, sent at the end of it
+var _tech_paid := {}   # tech id -> true if that change was bought, not granted
+var tech_refunds := 0  # host: ranks bought twice and paid back (for the log and the test)
 var _needle_t := 0.0
 var _frozen := false  # stop sending (pile swap in progress, waiting for a reload)
 var _pile_seed := 0
@@ -121,6 +133,7 @@ func _ready() -> void:
 	GameState.pile_replaced.connect(_on_pile_replaced)
 	GameState.needle_found.connect(_on_needle_found)
 	GameState.needle_discovered.connect(_on_needle_discovered)
+	GameState.purchased.connect(_on_purchased)
 	rebaseline()
 	if mp.active():
 		apply_session_rules()
@@ -135,6 +148,8 @@ func shutdown() -> void:
 		GameState.needle_found.disconnect(_on_needle_found)
 	if GameState.needle_discovered.is_connected(_on_needle_discovered):
 		GameState.needle_discovered.disconnect(_on_needle_discovered)
+	if GameState.purchased.is_connected(_on_purchased):
+		GameState.purchased.disconnect(_on_purchased)
 	if props_sync != null and is_instance_valid(props_sync):
 		props_sync.shutdown()
 	if belts_sync != null and is_instance_valid(belts_sync):
@@ -161,6 +176,7 @@ func rebaseline() -> void:
 	_st_pending.clear()
 	_pile_seed = GameState.run_seed
 	_needles.clear()
+	_holder.clear()
 	for idx in _needle_bodies():
 		_needles[idx] = "free"
 	_frozen = false
@@ -187,9 +203,11 @@ func place_at_spawn() -> void:
 
 func apply_session_rules() -> void:
 	mp._mp_guard_online_services()
+	mp.hold_profile()
 	if props_sync != null and is_instance_valid(props_sync):
 		props_sync.session_started()
 	if not mp.is_host:
+		_leave_missions_to_host()
 		SaveManager.block_save = true
 		if "autosave_enabled" in world:
 			world.autosave_enabled = false
@@ -199,6 +217,19 @@ func apply_session_rules() -> void:
 		if live != null and "expose_uncovered" in live:
 			live.expose_uncovered = false
 		_freeze_client_machines()
+
+
+# Missions run on every player so the quest board keeps up, but only the host
+# pays for them: a guest that finished one first paid it here, the payment
+# reached the host as more money, and the host paid it again when it got
+# there. Marking every step as paid and rewarded on the guest makes its
+# director skip the money, the free building and the card; the host's payout
+# arrives with the shared money like anything else.
+func _leave_missions_to_host() -> void:
+	for i in MissionBook.count():
+		var id := String(MissionBook.id_at(i))
+		GameState.missions_paid[id] = true
+		GameState.gifts_given[id] = true
 
 
 func _is_client() -> bool:
@@ -216,6 +247,8 @@ func _process(delta: float) -> void:
 		_send_pose()
 	if _frozen:
 		return
+	if not _tech_queue.is_empty():
+		_flush_tech()
 	_hay_t += delta
 	_hay_scan_t += delta
 	if _hay_t >= HAY_TICK:
@@ -236,6 +269,11 @@ func _process(delta: float) -> void:
 	if _state_t >= STATE_TICK:
 		_state_t = 0.0
 		_state_tick()
+	if mp.is_host:
+		_hay_sum_t += delta
+		if _hay_sum_t >= HAY_SUM_TICK:
+			_hay_sum_t = 0.0
+			_send_hay_sums()
 
 
 # ---------------------------------------------------------------- avatars
@@ -256,7 +294,8 @@ func _send_pose() -> void:
 
 
 # What is in our bare hands, in one number: how many straws in the low four
-# bits, and the type of needle above that (0 for none).
+# bits, and the type of needle plus one above that (0 for none). The full game
+# has 24 needle types, so the needle part is read back without a 4-bit mask.
 func _hands() -> int:
 	var hand: Variant = player.get("hand")
 	if hand == null or not is_instance_valid(hand):
@@ -271,6 +310,7 @@ func _hands() -> int:
 
 
 func on_pose(id: int, pos: Vector3, yaw: float, pitch: float, tool: int, crouch: float, moving: float, hands: int = 0) -> void:
+	_last_at[id] = pos
 	var a: Node = avatars.get(id)
 	if a == null or not is_instance_valid(a):
 		a = _avatar_script.new()
@@ -280,7 +320,7 @@ func on_pose(id: int, pos: Vector3, yaw: float, pitch: float, tool: int, crouch:
 		avatars[id] = a
 	a.set_target(pos, yaw, pitch, tool, crouch, moving)
 	if a.has_method("set_hands"):
-		a.set_hands(hands & 15, ((hands >> 4) & 15) - 1)
+		a.set_hands(hands & 15, (hands >> 4) - 1)
 	if strands_sync != null and is_instance_valid(strands_sync):
 		# one straw is a straw; from two up the farmer holds a small ball of hay
 		var straws: int = hands & 15
@@ -302,6 +342,9 @@ func clear_avatars() -> void:
 
 
 func forget_peer(id: int) -> void:
+	if mp.is_host:
+		_drop_needles_of(id)
+	_last_at.erase(id)
 	if props_sync != null and is_instance_valid(props_sync):
 		props_sync.peer_gone(id)
 	if strands_sync != null and is_instance_valid(strands_sync):
@@ -357,11 +400,17 @@ func _hay_tick(full: bool) -> void:
 	var at := 0
 	while at < idx.size():
 		var end := mini(at + HAY_BATCH, idx.size())
-		mp._rx_hay.rpc(idx.slice(at, end), vals.slice(at, end))
+		# The host owns the pile. A guest hands its digs to the host, which
+		# settles them into its pile and sends the result to everybody; two
+		# players' digs and slides used to overwrite each other for good.
+		if mp.is_host:
+			mp._rx_hay.rpc(idx.slice(at, end), vals.slice(at, end))
+		else:
+			mp._rx_hay.rpc_id(1, idx.slice(at, end), vals.slice(at, end))
 		at = end
 
 
-func on_hay(idx: PackedInt32Array, vals: PackedFloat32Array) -> void:
+func on_hay(sender: int, idx: PackedInt32Array, vals: PackedFloat32Array) -> void:
 	if field == null or _frozen:
 		return
 	field.settle_join()
@@ -370,17 +419,97 @@ func on_hay(idx: PackedInt32Array, vals: PackedFloat32Array) -> void:
 	if _hay_base.size() != n:
 		_hay_base = h.duplicate()
 	var nv: int = field.get("_nv")
+	# Host, digs from a guest: take them in as our own change, so our pile
+	# settles around them and our next tick sends the result to everyone (the
+	# guest included). Everyone else: the host's word is final, write it down
+	# without settling it again.
+	var from_guest: bool = mp.is_host and sender != 1 and sender != 0
 	var touched := PackedInt32Array()
-	for k in idx.size():
+	for k in mini(idx.size(), vals.size()):
 		var i := idx[k]
 		if i < 0 or i >= n:
 			continue
 		h[i] = vals[k]
-		_hay_base[i] = vals[k]
+		if not from_guest:
+			_hay_base[i] = vals[k]
 		touched.append(i)
 	field.heights = h
 	for i in touched:
-		field._dirty_vertex_cells(i % nv, i / nv)
+		if from_guest:
+			field._touch_vertex(i % nv, i / nv)
+		else:
+			field._dirty_vertex_cells(i % nv, i / nv)
+
+
+func _hay_blocks_per_side() -> int:
+	var nv: int = field.get("_nv")
+	return int(ceil(float(nv) / HAY_BLOCK))
+
+
+func _hay_block_sums() -> PackedFloat32Array:
+	var nv: int = field.get("_nv")
+	var per := _hay_blocks_per_side()
+	var sums := PackedFloat32Array()
+	sums.resize(per * per)
+	var h: PackedFloat32Array = field.heights
+	for j in nv:
+		var row := (j / HAY_BLOCK) * per
+		var base := j * nv
+		for i in nv:
+			sums[row + i / HAY_BLOCK] += h[base + i]
+	return sums
+
+
+func _send_hay_sums() -> void:
+	if field == null:
+		return
+	var sums := _hay_block_sums()
+	for pid in mp.players.keys():
+		if pid != 1 and str(mp.players[pid].get("state", "")) == "world":
+			mp._rx_hay_sums.rpc_id(pid, sums)
+
+
+# Guest: the host's checksums. Anything we dug since our last tick goes out
+# first, on the same channel, so the host has it before it answers; then ask
+# for every block that does not add up.
+func on_hay_sums(sums: PackedFloat32Array) -> void:
+	if field == null or _frozen or mp.is_host:
+		return
+	_hay_tick(false)
+	var mine := _hay_block_sums()
+	if mine.size() != sums.size():
+		return
+	var want := PackedInt32Array()
+	for b in sums.size():
+		if absf(mine[b] - sums[b]) > HAY_SUM_TOL:
+			want.append(b)
+	if not want.is_empty():
+		mp._rx_hay_want.rpc_id(1, want)
+
+
+# Host: send a guest the blocks it asked for, as they are here.
+func on_hay_want(pid: int, blocks: PackedInt32Array) -> void:
+	if field == null:
+		return
+	var nv: int = field.get("_nv")
+	var per := _hay_blocks_per_side()
+	var h: PackedFloat32Array = field.heights
+	var idx := PackedInt32Array()
+	var vals := PackedFloat32Array()
+	for b in blocks:
+		if b < 0 or b >= per * per:
+			continue
+		var j0 := (b / per) * HAY_BLOCK
+		var i0 := (b % per) * HAY_BLOCK
+		for j in range(j0, mini(j0 + HAY_BLOCK, nv)):
+			for i in range(i0, mini(i0 + HAY_BLOCK, nv)):
+				idx.append(j * nv + i)
+				vals.append(h[j * nv + i])
+	var at := 0
+	while at < idx.size():
+		var end := mini(at + HAY_BATCH, idx.size())
+		mp._rx_hay.rpc_id(pid, idx.slice(at, end), vals.slice(at, end))
+		at = end
 
 
 # ---------------------------------------------------------------- buildings
@@ -388,6 +517,9 @@ func on_hay(idx: PackedInt32Array, vals: PackedFloat32Array) -> void:
 func _on_builds_changed() -> void:
 	if not _applying_builds:
 		_builds_dirty = true
+	# a machine placed here would run on its own until the next build tick
+	if _is_client():
+		_freeze_client_machines.call_deferred()
 
 
 func _bkey(d: Dictionary) -> String:
@@ -468,6 +600,7 @@ func on_builds(adds: Array, removes: Array) -> void:
 
 func _find_building(d: Dictionary) -> Node3D:
 	var want := str(d.get("type", ""))
+	var key := _bkey(d)
 	var best: Node3D = null
 	var best_err := 0.6
 	for n in builds.every_placed():
@@ -476,6 +609,9 @@ func _find_building(d: Dictionary) -> Node3D:
 		var nd: Dictionary = n.to_dict()
 		if str(nd.get("type", "")) != want:
 			continue
+		# the very building first: nearest-within-0.6 m could take a neighbour
+		if _bkey(nd) == key:
+			return n
 		var err := 0.0
 		for k in ["position", "a", "b"]:
 			if d.has(k) and nd.has(k) and d[k] is Vector3 and nd[k] is Vector3:
@@ -495,14 +631,26 @@ func _demolish(n: Node3D) -> void:
 
 # Add buildings through the game's own loader without wiping the yard:
 # from_array() starts with clear(), so the existing buildings are parked
-# outside the manager's lists while it runs, then merged back.
+# outside the manager's lists while it runs, then merged back. clear() also
+# empties the demo's withheld buildings (they would drop out of the host's
+# save) and frees the enclosed-conveyor shells, so those are parked too.
+const BUILD_EXTRAS := ["demo_withheld"]
+
+
 func _add_buildings(dicts: Array) -> void:
 	var parked := {}
-	for a in BUILD_ARRAYS:
+	for a in BUILD_ARRAYS + BUILD_EXTRAS:
 		var arr: Variant = builds.get(a)
 		if arr is Array:
 			parked[a] = arr.duplicate()
 			arr.clear()
+	var shells: Variant = builds.get("_enclosed_visuals")
+	var shells_sig: Variant = builds.get("_enclosed_built")
+	var on_show: Variant = builds.get("_enclosed_on_show")
+	var on_show_kept: Dictionary = (on_show as Dictionary).duplicate() if on_show is Dictionary else {}
+	if shells != null:
+		# clear() frees whatever this points at; keep the node alive
+		builds.set("_enclosed_visuals", null)
 	var slice: int = builds.restore_slice_usec
 	builds.restore_slice_usec = 0
 	await builds.from_array(dicts)
@@ -513,6 +661,21 @@ func _add_buildings(dicts: Array) -> void:
 		arr.clear()
 		arr.append_array(parked[a])
 		arr.append_array(fresh)
+	if shells != null and is_instance_valid(shells):
+		var made: Variant = builds.get("_enclosed_visuals")
+		if made != null and is_instance_valid(made) and made != shells:
+			builds.remove_child(made)
+			made.queue_free()
+		builds.set("_enclosed_visuals", shells)
+		if shells_sig != null:
+			builds.set("_enclosed_built", shells_sig)
+	if on_show is Dictionary:
+		var now_show: Dictionary = builds.get("_enclosed_on_show")
+		for k in on_show_kept:
+			if not now_show.has(k):
+				now_show[k] = on_show_kept[k]
+	if builds.has_method("_rebuild_enclosed_visuals"):
+		builds._rebuild_enclosed_visuals()
 	builds.rebuild_junctions()
 	builds.rebuild_water_joints()
 	builds.fit_posts_to_decks()
@@ -755,13 +918,40 @@ func _emit_state_signals(before: Dictionary) -> void:
 
 # ---------------------------------------------------------------- tech tree
 
+# Tech.buy() changes the rank first and records the purchase right after, and
+# a grant (bundled cards, rewards) never records one. So collect this frame's
+# changes and send them at the end of it, marked bought or granted.
 func _on_tech_changed(id: String, rank: int) -> void:
 	if _tech_mute or not mp.active() or _frozen:
 		return
-	mp._rx_tech.rpc(id, rank)
+	_tech_queue[id] = rank
 
 
-func on_tech(id: String, rank: int) -> void:
+func _on_purchased(kind: String, id: String) -> void:
+	if kind == "card":
+		_tech_paid[id] = true
+
+
+func _flush_tech() -> void:
+	for id in _tech_queue:
+		mp._rx_tech.rpc(String(id), int(_tech_queue[id]), bool(_tech_paid.get(id, false)))
+	_tech_queue.clear()
+	_tech_paid.clear()
+
+
+func on_tech(sender: int, id: String, rank: int, paid: bool = false) -> void:
+	var have := int(Tech.ranks.get(id, 0))
+	if rank > 0 and rank <= have:
+		# Two players bought the same rank at once and both paid for it. The
+		# host puts the second payment back into the shared money.
+		if mp.is_host and paid and sender != 1:
+			var cost := float(TechTree.cost_at(id, rank - 1))
+			if cost > 0.0:
+				tech_refunds += 1
+				GameState.money += cost
+				GameState.money_changed.emit(GameState.money)
+				print("[MPMod] %s rank %d was bought twice, refunded %.0f" % [id, rank, cost])
+		return
 	_tech_mute = true
 	if rank <= 0:
 		Tech.ranks.erase(id)
@@ -811,6 +1001,12 @@ func build_payload(_pid: int) -> Dictionary:
 			"money_earned": GameState.money_earned,
 		},
 	}
+	# the pile's starting shape: without it the guest re-shapes the dome from
+	# the seed, which is slow and not what the host's pile was dug from
+	var dome: Variant = field.get("dome")
+	if dome is PackedFloat32Array and (dome as PackedFloat32Array).size() == field.heights.size():
+		out["dome"] = dome
+		out["dome_seed"] = int(field.get("dome_seed"))
 	var meta: Dictionary = out["meta"]
 	for key in CFG_META:
 		# null when this build of the game does not have the setting
@@ -821,14 +1017,14 @@ func build_payload(_pid: int) -> Dictionary:
 
 
 func send_full_sync(pid: int) -> void:
-	# loose needles the late joiner missed: [index, position, held_by_someone]
+	# loose needles the late joiner missed: [index, position, who holds it]
 	var needles: Array = []
 	var bodies := _needle_bodies()
 	for idx in bodies:
-		needles.append([idx, bodies[idx].global_position, _needles.get(idx, "") == "held"])
-	for idx in _needles:
-		if _needles[idx] == "away" and not bodies.has(idx):
-			needles.append([idx, Vector3.ZERO, true])
+		needles.append([idx, bodies[idx].global_position, _holder_of(idx)])
+	for idx in _holder:
+		if not bodies.has(idx):
+			needles.append([idx, Vector3.ZERO, int(_holder[idx])])
 	mp._rx_full_sync.rpc_id(pid, field.heights, builds.to_array(), Tech.to_dict(), needles)
 	if props_sync != null and is_instance_valid(props_sync):
 		props_sync.send_all(pid)
@@ -839,8 +1035,13 @@ func send_full_sync(pid: int) -> void:
 
 
 func on_full_sync(heights: PackedFloat32Array, host_builds: Array, tech: Dictionary, needles: Array = []) -> void:
+	# what we spent or earned since the last state tick goes out now: the
+	# rebaseline at the end of this used to drop it on the floor
+	if _is_client():
+		_state_tick()
 	for n in needles:
-		on_needle("claim" if bool(n[2]) else "spawn", int(n[0]), n[1])
+		var holder := int(n[2])
+		on_needle("claim" if holder != 0 else "spawn", int(n[0]), n[1], holder)
 	if field != null and heights.size() == field.heights.size():
 		var idx := PackedInt32Array()
 		var vals := PackedFloat32Array()
@@ -850,7 +1051,7 @@ func on_full_sync(heights: PackedFloat32Array, host_builds: Array, tech: Diction
 				idx.append(i)
 				vals.append(heights[i])
 		if not idx.is_empty():
-			on_hay(idx, vals)
+			on_hay(1, idx, vals)
 		_hay_base = field.heights.duplicate()
 	if builds != null:
 		var want := {}
@@ -891,15 +1092,17 @@ func _on_pile_replaced() -> void:
 	else:
 		# We just paid for the load. Get that out before freezing stops the
 		# state tick, or the host undoes its own charge expecting ours and the
-		# pile ends up free for everyone.
+		# pile ends up free for everyone. Say how we paid, so the host can put
+		# it back if it cannot take a new load after all.
+		var on_credit: bool = float(GameState.debt) > float(_st_base.get("debt", 0.0)) + 0.5
 		_state_tick()
 		_frozen = true
 		# the host owns the pile; ask it to swap its pile, it will send us the result
 		mp.ui.notify(mp.t("new_pile_client"))
-		mp._rx_new_pile_request.rpc_id(1)
+		mp._rx_new_pile_request.rpc_id(1, on_credit)
 
 
-func host_new_pile_for_client(pid: int) -> void:
+func host_new_pile_for_client(pid: int, on_credit: bool = false) -> void:
 	# The client already paid on its side (that arrives as a state delta),
 	# so undo the host-side charge of the delivery.
 	var money: float = GameState.money
@@ -914,7 +1117,17 @@ func host_new_pile_for_client(pid: int) -> void:
 	GameState.money_changed.emit(money)
 	GameState.debt_changed.emit(debt)
 	if GameState.run_seed == seed_before:
-		# the host could not take a new load right now: put the client back
+		# The host could not take a new load right now (the landing spot is
+		# blocked, or no load may be ordered). The guest's payment already came
+		# in with its state delta: give it back, then put the guest back.
+		if GameState.stacks_ordered > 0:
+			GameState.stacks_ordered -= 1
+			if on_credit:
+				GameState.debt = maxf(0.0, GameState.debt - GameState.credit_stack_fee())
+				GameState.debt_changed.emit(GameState.debt)
+			else:
+				GameState.money += GameState.next_stack_fee()
+				GameState.money_changed.emit(GameState.money)
 		mp.send_world(pid)
 
 
@@ -957,45 +1170,157 @@ func _needle_tick() -> void:
 		if st == "away":
 			continue
 		if st == "":
+			# a new needle here: the host's own pile uncovered it, or one of our
+			# tools lifted it out (the shovel does); either way everyone sees it
 			_needles[idx] = "free"
-			mp._rx_needle.rpc("spawn", idx, cur[idx].global_position)
 			st = "free"
-		if idx == held and st != "held":
+			if mp.is_host:
+				_needle_out("spawn", idx, cur[idx].global_position, 0)
+			else:
+				mp._rx_needle_req.rpc_id(1, "spawn", idx, cur[idx].global_position)
+		if idx == held and st == "free":
 			_needles[idx] = "held"
-			mp._rx_needle.rpc("claim", idx, Vector3.ZERO)
+			_needle_claim(idx)
 		elif idx != held and st == "held":
 			_needles[idx] = "free"
-			mp._rx_needle.rpc("spawn", idx, cur[idx].global_position)
+			if mp.is_host:
+				_holder.erase(idx)
+				_needle_out("spawn", idx, cur[idx].global_position, 0)
+			else:
+				mp._rx_needle_req.rpc_id(1, "drop", idx, cur[idx].global_position)
 	for idx in _needles.keys():
-		if _needles[idx] != "away" and not cur.has(idx):
-			_needles.erase(idx)
-			mp._rx_needle.rpc("gone", idx, Vector3.ZERO)
+		if _needles[idx] == "away" or cur.has(idx):
+			continue
+		var was: String = _needles[idx]
+		_needles.erase(idx)
+		if mp.is_host:
+			# the host's copy is the one that counts
+			_holder.erase(idx)
+			_needle_out("gone", idx, Vector3.ZERO, 0)
+		elif was == "held":
+			# ours, and we used it up (handed it in)
+			mp._rx_needle_req.rpc_id(1, "gone", idx, Vector3.ZERO)
+		else:
+			# a loose needle vanished here only (our physics lost it): that is
+			# no reason to take it off everybody, ask the host where it is
+			mp._rx_needle_req.rpc_id(1, "want", idx, Vector3.ZERO)
 
 
-func on_needle(kind: String, idx: int, pos: Vector3) -> void:
-	var live := _live()
-	if live == null or _frozen:
+func _holder_of(idx: int) -> int:
+	if _holder.has(idx):
+		return int(_holder[idx])
+	return 1 if mp.is_host and idx == _held_needle() else 0
+
+
+func _needle_out(kind: String, idx: int, pos: Vector3, holder: int) -> void:
+	mp._rx_needle.rpc(kind, idx, pos, holder)
+
+
+# We picked a needle up. The host decides: first come, first served.
+func _needle_claim(idx: int) -> void:
+	if not mp.is_host:
+		mp._rx_needle_req.rpc_id(1, "claim", idx, Vector3.ZERO)
 		return
+	var h := int(_holder.get(idx, 0))
+	if h != 0 and h != 1:
+		# a guest's claim got here first: it is theirs
+		_apply_needle("claim", idx, Vector3.ZERO, h)
+		return
+	_holder[idx] = 1
+	_needle_out("claim", idx, Vector3.ZERO, 1)
+
+
+# Host: what a guest says happened to a needle.
+func on_needle_req(sender: int, kind: String, idx: int, pos: Vector3) -> void:
+	if _frozen or idx < 0:
+		return
+	var h := _holder_of(idx)
+	match kind:
+		"claim":
+			if h != 0 and h != sender:
+				# somebody else has it: tell the guest who, so it lets go
+				mp._rx_needle.rpc_id(sender, "claim", idx, Vector3.ZERO, h)
+				return
+			_holder[idx] = sender
+			_apply_needle("claim", idx, Vector3.ZERO, sender)
+			_needle_out("claim", idx, Vector3.ZERO, sender)
+		"drop":
+			if h != sender:
+				return
+			_holder.erase(idx)
+			_apply_needle("spawn", idx, pos, 0)
+			_needle_out("spawn", idx, pos, 0)
+		"gone":
+			if h != sender and h != 0:
+				return
+			_holder.erase(idx)
+			_apply_needle("gone", idx, Vector3.ZERO, 0)
+			_needle_out("gone", idx, Vector3.ZERO, 0)
+		"spawn":
+			if h != 0 or _needle_bodies().has(idx):
+				return
+			_apply_needle("spawn", idx, pos, 0)
+			_needle_out("spawn", idx, pos, 0)
+		"want":
+			var body: Variant = _needle_bodies().get(idx)
+			if h != 0:
+				mp._rx_needle.rpc_id(sender, "claim", idx, Vector3.ZERO, h)
+			elif body != null:
+				mp._rx_needle.rpc_id(sender, "spawn", idx, (body as Node3D).global_position, 0)
+			else:
+				mp._rx_needle.rpc_id(sender, "gone", idx, Vector3.ZERO, 0)
+
+
+func on_needle(kind: String, idx: int, pos: Vector3, holder: int = 0) -> void:
+	if _frozen:
+		return
+	_apply_needle(kind, idx, pos, holder)
+
+
+func _apply_needle(kind: String, idx: int, pos: Vector3, holder: int) -> void:
+	var live := _live()
+	if live == null:
+		return
+	var me := multiplayer.get_unique_id()
 	var body: RigidBody3D = _needle_bodies().get(idx)
 	match kind:
 		"spawn":
+			if idx == _held_needle():
+				return  # our claim is on its way; the host will settle it
 			if body != null:
-				if idx != _held_needle():
-					body.global_position = pos
-					body.linear_velocity = Vector3.ZERO
+				body.global_position = pos
+				body.linear_velocity = Vector3.ZERO
 			else:
 				live.reveal_needle(idx, pos)
 			_needles[idx] = "free"
 		"claim":
-			if body != null and idx == _held_needle():
-				return  # we grabbed it at the same moment; keep ours
+			if holder == me:
+				_needles[idx] = "held"
+				return
+			# someone else holds it. If we grabbed it too, we were second: it
+			# leaves our hand as well, so it can only be handed in once
 			if body != null:
 				live.consume_needle(body)
 			_needles[idx] = "away"
 		"gone":
-			if body != null and idx != _held_needle():
+			if body != null:
 				live.consume_needle(body)
 			_needles.erase(idx)
+
+
+# A guest left while holding a needle: put it down where they were standing, so
+# it is not lost to everybody.
+func _drop_needles_of(pid: int) -> void:
+	for idx in _holder.keys():
+		if int(_holder[idx]) != pid:
+			continue
+		_holder.erase(idx)
+		# the avatar is already gone by now, so use the last pose we had
+		var at: Vector3 = GameState.needle_positions[idx] if idx < GameState.needle_positions.size() else Vector3.ZERO
+		if _last_at.has(pid):
+			at = (_last_at[pid] as Vector3) + Vector3.UP * 0.4
+		_apply_needle("spawn", idx, at, 0)
+		_needle_out("spawn", idx, at, 0)
 
 
 # ---------------------------------------------------------------- events / toasts

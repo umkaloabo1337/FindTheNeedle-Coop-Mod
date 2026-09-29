@@ -1,4 +1,4 @@
-MOD COOPERATIVO PARA FIND THE NEEDLE  v0.18.1
+MOD COOPERATIVO PARA FIND THE NEEDLE  v0.19.0
 =============================================
 
 Mod no oficial. Todos los jugadores necesitan el juego (la demo, gratis en
@@ -73,6 +73,9 @@ LIMITACIONES CONOCIDAS
   - Las herramientas compradas son de cada jugador. El dinero es comun.
   - Solo guarda el anfitrion. Los clientes no escriben en sus partidas.
   - La tabla de clasificacion online se desactiva con el mod cargado.
+  - El dinero puede bajar de cero si dos jugadores gastan a la vez.
+  - Quien tiene una aguja suelta es comun; donde esta tirada puede variar un
+    poco entre jugadores hasta que alguien la coge.
 
 CREDITOS
 --------
