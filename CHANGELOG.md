@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.19.4
+
+* Hay tufts the other player dropped (the little piles a full spade leaves)
+  can be picked up now, by hand and with a spade. A new tuft has no
+  collision layer until its own physics tick finds no straw inside it, and
+  that tick is off on the other player's copy, so the copy never got its
+  layer back and nobody but its maker could aim at it. The copy gets its
+  layer right away now. A spade also takes the copy over when it is in
+  reach, since a spade passes over a frozen or claimed wad.
+* The crash trace (`mp_trace.log`) is much lighter. The messages that come
+  in many times a second (moves, belt and machine updates) are counted on
+  the once a second line instead of one line each, and the per machine
+  lines are gone. It filled its 4 MB in about 18 minutes before.
+* Loose straw a guest throws by hand into a hopper, or onto a belt that
+  feeds a machine, is taken since 0.19.3 (#17), checked again in a
+  two-player test.
+
 ## v0.19.3
 
 * The guest crash within minutes of joining (reported in #15 by oogienl,

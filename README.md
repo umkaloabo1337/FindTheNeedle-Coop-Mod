@@ -10,7 +10,7 @@ Unofficial mod, not affiliated with the game's developer. It contains no game
 files, only its own scripts and a CC0 player model. Spanish version of this
 file: [README.es.md](README.es.md).
 
-![Multiplayer panel](screenshots/panel.png)
+![Two players in the same yard](screenshots/coop.png)
 
 ## Requirements
 

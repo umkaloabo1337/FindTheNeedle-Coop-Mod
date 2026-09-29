@@ -9,7 +9,10 @@ extends Node
 # after a crash its last lines say what was being handled.
 #
 # It stays on the player's PC and holds no chat or names, only which message
-# arrived, from which peer and how big it was. Each line is flushed as it is
+# arrived, from which peer and how big it was. The ones that come in many times
+# a second (moves, poses, belt and machine updates) are only counted, and the
+# counts go on the once a second tick line: one line each filled 4 MB in about
+# 18 minutes and the start of a session was gone by the time anyone looked. Each line is flushed as it is
 # written, so it survives the game dying. On start the previous run's file is
 # kept as mp_trace.prev.log, since after a crash the game gets opened again.
 
@@ -17,11 +20,15 @@ const PATH := "user://mp_trace.log"
 const PREV := "user://mp_trace.prev.log"
 const MAX_BYTES := 4 << 20
 const TICK := 1.0
+const COUNTED := ["straw_move", "straw_add", "straw_del", "straw_census",
+	"prop_move", "prop_state", "prop_census", "machines", "machine_fields",
+	"belts", "hay", "hay_sums", "state_delta"]
 
 var _f: FileAccess = null
 var _t := 0.0
 var _frames := 0
 var _dirty := false  # something was written this frame
+var _counts := {}    # message -> how many since the last tick
 
 
 func start(version: String) -> void:
@@ -50,6 +57,13 @@ func note(text: String) -> void:
 		note("trace restarted (size limit)")
 
 
+func rx(what: String, from: int, size: int) -> void:
+	if COUNTED.has(what):
+		_counts[what] = int(_counts.get(what, 0)) + 1
+		return
+	note("rx %s from %d%s" % [what, from, (" n=%d" % size) if size >= 0 else ""])
+
+
 func _process(delta: float) -> void:
 	# a frame went by after something was written: whatever that was, it
 	# finished. After a crash, a message with no "frame" after it is the suspect.
@@ -61,8 +75,12 @@ func _process(delta: float) -> void:
 	_t += delta
 	if _t < TICK:
 		return
-	note("tick fps=%d frame_ms=%.1f nodes=%d" % [_frames, 1000.0 * _t / maxf(1.0, _frames),
-		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))])
+	var got := ""
+	for what in _counts:
+		got += " %s=%d" % [what, _counts[what]]
+	_counts.clear()
+	note("tick fps=%d frame_ms=%.1f nodes=%d%s" % [_frames, 1000.0 * _t / maxf(1.0, _frames),
+		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), got])
 	_t = 0.0
 	_frames = 0
 

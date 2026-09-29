@@ -163,6 +163,13 @@ func _puppet(item: Node) -> void:
 	item.freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
 	item.freeze = true
 	item.set_physics_process(false)
+	# a new hay tuft starts with no collision layer and gets it back in its own
+	# physics tick once no straw is inside it; that tick is off on a copy, so the
+	# copy stayed out of everyone's aim and only its maker could pick it up
+	if item is HayTuft and float(item.get("_emerging")) > 0.0:
+		item.set("_emerging", 0.0)
+		item.collision_layer = int(item.get("_emerge_layer"))
+		item.collision_mask = int(item.get("_emerge_mask"))
 
 
 # Moving a frozen body by its transform alone leaves its collision shape
@@ -312,6 +319,39 @@ func on_board(sender: int, id: int, xf: Transform3D) -> void:
 	(it as RigidBody3D).sleeping = false
 
 
+# Hay the other player dropped: the little piles a spade leaves (HayTuft) and
+# wads. Our copy of one is frozen and claimed, and the spade passes over a
+# frozen or claimed wad, so only the player who made a pile could scoop it up
+# again. When we hold a spade and such a copy is in reach in front of us, take
+# it over first, the way picking up an item does: then it is ours, loose, and
+# the spade takes it like any other. Picking one up by hand already claims it.
+const CLAIM_REACH := 2.4   # the spade's gather reach
+
+func _claim_in_reach() -> void:
+	var pl: Variant = world.get("player")
+	if pl == null or not is_instance_valid(pl):
+		return
+	var tool := int(pl.get("current_tool"))
+	if tool != Player.Tool.SHOVEL:
+		return
+	var eye: Vector3 = pl.eye_position()
+	var look: Vector3 = pl.look_direction()
+	for id in _by_id.keys():
+		if _mine(id) or bool(_held.get(id, false)):
+			continue
+		var it: Variant = _by_id[id]
+		if it == null or not is_instance_valid(it) or not (it is HayWad) or not (it as Node3D).is_inside_tree():
+			continue
+		var to: Vector3 = (it as Node3D).global_position - eye
+		if to.length() > CLAIM_REACH or to.normalized().dot(look) < 0.6:
+			continue
+		_owner[id] = _me()
+		_goal.erase(id)
+		_hash.erase(id)
+		_release(it)
+		mp._rx_prop_claim.rpc(id)
+
+
 func _state_of(item: Node) -> Dictionary:
 	var st: Dictionary = item.to_state()
 	if item.holds_needle():
@@ -346,6 +386,7 @@ func _process(delta: float) -> void:
 	if _move_t >= MOVE_TICK:
 		_move_t = 0.0
 		_move_tick()
+		_claim_in_reach()
 	_state_t += delta
 	if _state_t >= STATE_TICK:
 		_state_t = 0.0
