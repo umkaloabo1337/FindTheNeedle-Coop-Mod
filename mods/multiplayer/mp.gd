@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.19.0"
+const VERSION := "0.19.1"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8  # players in a session, host included (Steam counts the same way)
 const WORLD_CHUNK := 60000
@@ -33,6 +33,7 @@ var last_port := DEFAULT_PORT
 var i18n: RefCounted = null  # mp_i18n.gd: UI strings in the game's language
 var steam: Node = null  # mp_steam.gd: Steam relay transport (no port forwarding)
 var over_steam := false  # is the current session running through Steam?
+var trace: Node = null  # mp_trace.gd: what came in last, for crash reports
 
 var _last_scene: Node = null
 var _world_rx := {}
@@ -47,6 +48,10 @@ var _steam_joining := false  # we asked to join someone else (Steam also
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	base_dir = get_script().resource_path.get_base_dir()
+	trace = load(base_dir + "/mp_trace.gd").new()
+	trace.name = "MPTrace"
+	add_child(trace)
+	trace.start(VERSION)
 	i18n = load(base_dir + "/mp_i18n.gd").new()
 	_load_settings()
 	_mp_guard_online_services()
@@ -73,11 +78,20 @@ func _ready() -> void:
 			test.mp = self
 			add_child(test)
 	for f in ["mp_world.gd", "mp_avatar.gd", "mp_i18n.gd", "mp_props.gd",
-			"mp_machines.gd", "mp_strands.gd", "mp_contracts.gd"]:
+			"mp_machines.gd", "mp_strands.gd", "mp_contracts.gd", "mp_trace.gd"]:
 		var s: Script = load(base_dir + "/" + f)
 		if s == null or not s.can_instantiate():
 			push_error("[MPMod] %s failed to compile" % f)
 	print("[MPMod] v%s loaded from %s" % [VERSION, base_dir])
+
+
+# One line in the trace for a message that just arrived: which one, from whom
+# and, for the big ones, how many bytes or entries.
+func _trace(what: String, size: int = -1) -> void:
+	if trace == null:
+		return
+	var from := multiplayer.get_remote_sender_id() if multiplayer.multiplayer_peer != null else 0
+	trace.note("rx %s from %d%s" % [what, from, (" n=%d" % size) if size >= 0 else ""])
 
 
 # UI string in whatever language the game is set to.
@@ -126,6 +140,7 @@ func _on_scene_changed(cs: Node) -> void:
 
 
 func _start_world_sync(world: Node) -> void:
+	trace.note("world sync starts (%s, %s)" % ["host" if is_host else "guest", "steam" if over_steam else "ip"])
 	world_sync = load(base_dir + "/mp_world.gd").new()
 	world_sync.name = "MPWorld"
 	world_sync.mp = self
@@ -332,6 +347,7 @@ func join(ip: String, port: int) -> bool:
 
 
 func leave(reason: String = "") -> void:
+	trace.note("leave session")
 	var was_client := active() and not is_host
 	var was_in_mp_world := was_client and in_world()
 	if multiplayer.multiplayer_peer != null and not (multiplayer.multiplayer_peer is OfflineMultiplayerPeer):
@@ -404,11 +420,13 @@ func release_profile() -> void:
 
 
 func _on_peer_connected(id: int) -> void:
+	trace.note("peer %d connected" % id)
 	if is_host:
 		print("[MPMod] peer %d connected" % id)
 
 
 func _on_peer_disconnected(id: int) -> void:
+	trace.note("peer %d disconnected" % id)
 	if players.has(id):
 		ui.notify(t("left") % players[id]["name"], players[id]["color"])
 		players.erase(id)
@@ -433,6 +451,7 @@ func _on_connection_failed() -> void:
 
 
 func _on_server_disconnected() -> void:
+	trace.note("lost the host")
 	leave(t("host_closed"))
 
 
@@ -459,6 +478,7 @@ func player_color(id: int) -> Color:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _rx_hello(pname: String, ver: String) -> void:
+	_trace("hello")
 	if not is_host:
 		return
 	var id := multiplayer.get_remote_sender_id()
@@ -486,11 +506,13 @@ func _rx_hello(pname: String, ver: String) -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func _rx_kick(reason: String) -> void:
+	_trace("kick")
 	leave(reason)
 
 
 @rpc("authority", "call_remote", "reliable")
 func _rx_players(list: Dictionary) -> void:
+	_trace("players", list.size())
 	var before := players.keys()
 	players = list
 	if world_sync != null:
@@ -511,6 +533,7 @@ func _rx_players(list: Dictionary) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _rx_client_ready() -> void:
+	_trace("client_ready")
 	if not is_host:
 		return
 	var id := multiplayer.get_remote_sender_id()
@@ -524,6 +547,7 @@ func _rx_client_ready() -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _rx_chat(text: String) -> void:
+	_trace("chat")
 	var id := multiplayer.get_remote_sender_id()
 	ui.chat_line(player_name(id), player_color(id), text.substr(0, 200))
 
@@ -556,6 +580,7 @@ func send_world(id: int) -> void:
 
 @rpc("authority", "call_remote", "reliable", 1)
 func _rx_world_begin(raw_size: int, packed_size: int, chunks: int) -> void:
+	_trace("world_begin")
 	_world_rx = {"raw": raw_size, "size": packed_size, "n": chunks, "parts": {}}
 	phase = Phase.LOADING
 	ui.set_status(t("receiving_world"))
@@ -564,6 +589,7 @@ func _rx_world_begin(raw_size: int, packed_size: int, chunks: int) -> void:
 
 @rpc("authority", "call_remote", "reliable", 1)
 func _rx_world_chunk(i: int, data: PackedByteArray) -> void:
+	_trace("world_chunk", data.size())
 	if _world_rx.is_empty():
 		return
 	_world_rx["parts"][i] = data
@@ -572,6 +598,7 @@ func _rx_world_chunk(i: int, data: PackedByteArray) -> void:
 
 @rpc("authority", "call_remote", "reliable", 1)
 func _rx_world_end() -> void:
+	_trace("world_end")
 	if _world_rx.is_empty():
 		return
 	var packed := PackedByteArray()
@@ -621,6 +648,7 @@ func resync_all() -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _rx_request_world() -> void:
+	_trace("request_world")
 	if is_host and world_sync != null:
 		send_world(multiplayer.get_remote_sender_id())
 
@@ -646,6 +674,7 @@ func _rx_pose(pos: Vector3, yaw: float, pitch: float, tool: int, crouch: float, 
 
 @rpc("any_peer", "call_remote", "reliable", 3)
 func _rx_hay(idx: PackedInt32Array, vals: PackedFloat32Array) -> void:
+	_trace("hay", idx.size())
 	if world_sync != null:
 		world_sync.on_hay(multiplayer.get_remote_sender_id(), idx, vals)
 
@@ -654,48 +683,56 @@ func _rx_hay(idx: PackedInt32Array, vals: PackedFloat32Array) -> void:
 # drifted from the host and ask for just those blocks.
 @rpc("authority", "call_remote", "reliable", 3)
 func _rx_hay_sums(sums: PackedFloat32Array) -> void:
+	_trace("hay_sums", sums.size())
 	if world_sync != null:
 		world_sync.on_hay_sums(sums)
 
 
 @rpc("any_peer", "call_remote", "reliable", 3)
 func _rx_hay_want(blocks: PackedInt32Array) -> void:
+	_trace("hay_want", blocks.size())
 	if is_host and world_sync != null:
 		world_sync.on_hay_want(multiplayer.get_remote_sender_id(), blocks)
 
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_builds(adds: Array, removes: Array) -> void:
+	_trace("builds", adds.size())
 	if world_sync != null:
 		world_sync.on_builds(adds, removes)
 
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_state_delta(seq: int, delta: Dictionary) -> void:
+	_trace("state_delta", delta.size())
 	if is_host and world_sync != null:
 		world_sync.on_state_delta(multiplayer.get_remote_sender_id(), seq, delta)
 
 
 @rpc("authority", "call_remote", "reliable", 0)
 func _rx_state_snap(ack: int, snap: Dictionary) -> void:
+	_trace("state_snap", snap.size())
 	if world_sync != null:
 		world_sync.on_state_snap(ack, snap)
 
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_tech(id: String, rank: int, paid: bool) -> void:
+	_trace("tech")
 	if world_sync != null:
 		world_sync.on_tech(multiplayer.get_remote_sender_id(), id, rank, paid)
 
 
 @rpc("authority", "call_remote", "reliable", 0)
 func _rx_full_sync(heights: PackedFloat32Array, builds: Array, tech: Dictionary, needles: Array) -> void:
+	_trace("full_sync", heights.size())
 	if world_sync != null:
 		world_sync.on_full_sync(heights, builds, tech, needles)
 
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_new_pile_request(on_credit: bool) -> void:
+	_trace("new_pile_request")
 	if is_host and world_sync != null:
 		world_sync.host_new_pile_for_client(multiplayer.get_remote_sender_id(), on_credit)
 
@@ -704,6 +741,7 @@ func _rx_new_pile_request(on_credit: bool) -> void:
 # it, so two players grabbing the same needle cannot both hand it in.
 @rpc("authority", "call_remote", "reliable", 3)
 func _rx_needle(kind: String, idx: int, pos: Vector3, holder: int) -> void:
+	_trace("needle")
 	if world_sync != null:
 		world_sync.on_needle(kind, idx, pos, holder)
 
@@ -711,12 +749,14 @@ func _rx_needle(kind: String, idx: int, pos: Vector3, holder: int) -> void:
 # Guest -> host: a guest picked a needle up, put it down or used it up.
 @rpc("any_peer", "call_remote", "reliable", 3)
 func _rx_needle_req(kind: String, idx: int, pos: Vector3) -> void:
+	_trace("needle_req")
 	if is_host and world_sync != null:
 		world_sync.on_needle_req(multiplayer.get_remote_sender_id(), kind, idx, pos)
 
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_event(kind: String, data: Dictionary) -> void:
+	_trace("event", data.size())
 	if world_sync != null:
 		world_sync.on_event(multiplayer.get_remote_sender_id(), kind, data)
 
@@ -731,6 +771,7 @@ func _props() -> Node:
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_add(id: int, item_id: String, xf: Transform3D, state: Dictionary) -> void:
+	_trace("prop_add", state.size())
 	var p := _props()
 	if p != null:
 		p.on_add(multiplayer.get_remote_sender_id(), id, item_id, xf, state)
@@ -738,6 +779,7 @@ func _rx_prop_add(id: int, item_id: String, xf: Transform3D, state: Dictionary) 
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_del(ids: PackedInt64Array) -> void:
+	_trace("prop_del", ids.size())
 	var p := _props()
 	if p != null:
 		p.on_del(ids)
@@ -745,6 +787,7 @@ func _rx_prop_del(ids: PackedInt64Array) -> void:
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", 0)
 func _rx_prop_move(ids: PackedInt64Array, xfs: Array) -> void:
+	_trace("prop_move", ids.size())
 	var p := _props()
 	if p != null:
 		p.on_move(multiplayer.get_remote_sender_id(), ids, xfs)
@@ -752,6 +795,7 @@ func _rx_prop_move(ids: PackedInt64Array, xfs: Array) -> void:
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_state(ids: PackedInt64Array, states: Array) -> void:
+	_trace("prop_state", ids.size())
 	var p := _props()
 	if p != null:
 		p.on_state(multiplayer.get_remote_sender_id(), ids, states)
@@ -759,6 +803,7 @@ func _rx_prop_state(ids: PackedInt64Array, states: Array) -> void:
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_claim(id: int) -> void:
+	_trace("prop_claim")
 	var p := _props()
 	if p != null:
 		p.on_claim(multiplayer.get_remote_sender_id(), id)
@@ -768,6 +813,7 @@ func _rx_prop_claim(id: int) -> void:
 # host puts its own copy down there instead.
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_board(id: int, xf: Transform3D) -> void:
+	_trace("prop_board")
 	var p := _props()
 	if p != null and is_host:
 		p.on_board(multiplayer.get_remote_sender_id(), id, xf)
@@ -775,6 +821,7 @@ func _rx_prop_board(id: int, xf: Transform3D) -> void:
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_want(ids: PackedInt64Array) -> void:
+	_trace("prop_want", ids.size())
 	var p := _props()
 	if p != null:
 		p.on_want(multiplayer.get_remote_sender_id(), ids)
@@ -782,6 +829,7 @@ func _rx_prop_want(ids: PackedInt64Array) -> void:
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_prop_census(ids: PackedInt64Array) -> void:
+	_trace("prop_census", ids.size())
 	var p := _props()
 	if p != null:
 		p.on_census(multiplayer.get_remote_sender_id(), ids)
@@ -789,6 +837,7 @@ func _rx_prop_census(ids: PackedInt64Array) -> void:
 
 @rpc("authority", "call_remote", "reliable", 0)
 func _rx_prop_reset(first: bool, ids: PackedInt64Array, owners: PackedInt32Array, entries: Array) -> void:
+	_trace("prop_reset", ids.size())
 	var p := _props()
 	if p != null:
 		p.on_reset(first, ids, owners, entries)
@@ -796,6 +845,7 @@ func _rx_prop_reset(first: bool, ids: PackedInt64Array, owners: PackedInt32Array
 
 @rpc("authority", "call_remote", "reliable", 0)
 func _rx_prop_reset_end() -> void:
+	_trace("prop_reset_end")
 	var p := _props()
 	if p != null:
 		p.on_reset_end()
@@ -803,6 +853,7 @@ func _rx_prop_reset_end() -> void:
 
 @rpc("authority", "call_remote", "reliable", 0)
 func _rx_belts(packed: PackedByteArray, raw_size: int) -> void:
+	_trace("belts", packed.size())
 	if world_sync == null or world_sync.belts_sync == null:
 		return
 	world_sync.belts_sync.on_belts(packed, raw_size)
@@ -812,6 +863,7 @@ func _rx_belts(packed: PackedByteArray, raw_size: int) -> void:
 
 @rpc("authority", "call_remote", "unreliable_ordered", 0)
 func _rx_machines(packed: PackedByteArray, raw_size: int) -> void:
+	_trace("machines", packed.size())
 	if world_sync == null or world_sync.machines_sync == null:
 		return
 	world_sync.machines_sync.on_poses(packed, raw_size)
@@ -822,6 +874,7 @@ func _rx_machines(packed: PackedByteArray, raw_size: int) -> void:
 # 1 only carries the world at join time, so this never holds up anything else.
 @rpc("authority", "call_remote", "reliable", 1)
 func _rx_machines_big(packed: PackedByteArray, raw_size: int) -> void:
+	_trace("machines_big", packed.size())
 	if world_sync == null or world_sync.machines_sync == null:
 		return
 	world_sync.machines_sync.on_poses(packed, raw_size)
@@ -829,6 +882,7 @@ func _rx_machines_big(packed: PackedByteArray, raw_size: int) -> void:
 
 @rpc("authority", "call_remote", "reliable", 0)
 func _rx_machine_fields(batch: Dictionary) -> void:
+	_trace("machine_fields", batch.size())
 	if world_sync == null or world_sync.machines_sync == null:
 		return
 	world_sync.machines_sync.on_fields(batch)
@@ -839,6 +893,7 @@ func _rx_machine_fields(batch: Dictionary) -> void:
 # field tick like any other change.
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_machine_edit(batch: Dictionary) -> void:
+	_trace("machine_edit", batch.size())
 	if not is_host or world_sync == null or world_sync.machines_sync == null:
 		return
 	world_sync.machines_sync.on_edit(multiplayer.get_remote_sender_id(), batch)
@@ -846,6 +901,7 @@ func _rx_machine_edit(batch: Dictionary) -> void:
 
 @rpc("authority", "call_remote", "reliable", 0)
 func _rx_contract(state: Dictionary) -> void:
+	_trace("contract", state.size())
 	if world_sync == null or world_sync.contracts_sync == null:
 		return
 	world_sync.contracts_sync.on_state(state)
@@ -861,6 +917,7 @@ func _straws() -> Node:
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_straw_add(adds: Array) -> void:
+	_trace("straw_add", adds.size())
 	var s := _straws()
 	if s != null:
 		s.on_add(multiplayer.get_remote_sender_id(), adds)
@@ -868,6 +925,7 @@ func _rx_straw_add(adds: Array) -> void:
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", 0)
 func _rx_straw_move(ids: PackedInt64Array, rows: PackedFloat32Array) -> void:
+	_trace("straw_move", ids.size())
 	var s := _straws()
 	if s != null:
 		s.on_move(ids, rows)
@@ -875,6 +933,7 @@ func _rx_straw_move(ids: PackedInt64Array, rows: PackedFloat32Array) -> void:
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_straw_del(ids: PackedInt64Array) -> void:
+	_trace("straw_del", ids.size())
 	var s := _straws()
 	if s != null:
 		s.on_del(ids)
@@ -882,6 +941,7 @@ func _rx_straw_del(ids: PackedInt64Array) -> void:
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_straw_census(ids: PackedInt64Array) -> void:
+	_trace("straw_census", ids.size())
 	var s := _straws()
 	if s != null:
 		s.on_census(multiplayer.get_remote_sender_id(), ids)
@@ -889,6 +949,7 @@ func _rx_straw_census(ids: PackedInt64Array) -> void:
 
 @rpc("any_peer", "call_remote", "reliable", 0)
 func _rx_straw_claim(sid: int) -> void:
+	_trace("straw_claim")
 	var s := _straws()
 	if s != null:
 		s.on_claim(multiplayer.get_remote_sender_id(), sid)
