@@ -118,6 +118,12 @@ mod. El panel la indica.
 
 El mundo se ve distinto entre jugadores: pulsa F8.
 
+El juego se cierra de golpe: manda el último registro de fallo de
+`%APPDATA%\Godot\app_userdata\Haystack Incremental\crashes\` junto con
+`mp_trace.log` de la carpeta de arriba (o `mp_trace.prev.log` si ya has vuelto
+a abrir el juego). Solo apunta qué mensajes recibió el mod y cuándo, para ver
+qué se estaba haciendo cuando se cerró.
+
 Cualquier otra cosa: abre un [issue](../../issues) con el registro de
 `%APPDATA%\Godot\app_userdata\Haystack Incremental\logs\`.
 

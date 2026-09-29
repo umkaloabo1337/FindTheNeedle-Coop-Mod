@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.19.1
+
+* Free buildings from missions no longer multiply. Taking down a gift (a
+  power pole, a rake or a cabinet) hands it back, and the game did that on
+  the other player's side as well, so every dismantle made one more free
+  building. Only the player who takes it down gets it back now.
+* A crash trace for the guest crash over Steam, which still happens and
+  leaves nothing useful in the game's crash log. The mod now writes
+  `mp_trace.log` next to the game's crash logs: every message it receives,
+  and when the heavier jobs (buildings, belts, the world) start and end, one
+  line each, flushed as it goes. After a crash its last lines say what was
+  being handled. It stays on the player's PC and holds no chat or names; the
+  previous run's file is kept as `mp_trace.prev.log`.
+* Checked against the game update of 29 September (V41): nothing the mod
+  uses has changed.
+
 ## v0.19.0
 
 * A guest no longer crashes when it quits the game. Godot takes the scene tree

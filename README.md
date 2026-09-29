@@ -116,6 +116,12 @@ panel shows it.
 
 The world looks different between players: press F8.
 
+The game crashes: send the newest crash log from
+`%APPDATA%\Godot\app_userdata\Haystack Incremental\crashes\` together with
+`mp_trace.log` from the folder above it (or `mp_trace.prev.log` if the game was
+opened again since). The trace only lists which messages the mod received and
+when, so we can see what was being handled when it went down.
+
 Anything else: open an [issue](../../issues) with the log from
 `%APPDATA%\Godot\app_userdata\Haystack Incremental\logs\`.
 
