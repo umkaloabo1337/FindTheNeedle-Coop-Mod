@@ -622,11 +622,20 @@ func _find_building(d: Dictionary) -> Node3D:
 	return best
 
 
+# Taking down the other player's demolition. Pulling down a free building (a
+# pole, a rake or a cabinet a mission gave you) hands the gift back, and the
+# game did that here as well as on their side, so every demolish made one more
+# free building and a friend ended up with twenty poles. Whoever took it down
+# gets it back; here it just goes.
 func _demolish(n: Node3D) -> void:
+	var gifts: Dictionary = GameState.gifts.duplicate()
 	if builds.has_method("demolish_blocked_reason") and str(builds.demolish_blocked_reason(n)) == "":
 		builds.demolish(n)
 	if is_instance_valid(n) and not n.is_queued_for_deletion():
 		builds._demolish_one(n)
+	if GameState.gifts != gifts:
+		GameState.gifts = gifts
+		GameState.gifts_changed.emit()
 
 
 # Add buildings through the game's own loader without wiping the yard:
