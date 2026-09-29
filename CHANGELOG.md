@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.19.2
+
+* Over Steam, machine updates go out in small pieces. Both guest crashes
+  caught with the new trace came right after the host's big machine update
+  arrived (up to 9 KB in one message), and it has never happened over a
+  direct connection. Each machine's moves, lights and effects are now split
+  into messages of about a kilobyte. A direct connection is unchanged.
+* The trace now says which machine was being updated, and marks each frame
+  that went by, so after a crash it shows whether the last message had
+  finished.
+* F6 (the debug menu) no longer fills the log with thousands of
+  "debug_menu doesn't exist" errors on the 29 September game build.
+
 ## v0.19.1
 
 * Free buildings from missions no longer multiply. Taking down a gift (a
