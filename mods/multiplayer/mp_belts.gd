@@ -88,6 +88,7 @@ func on_belts(packed: PackedByteArray, raw_size: int) -> void:
 	var entries: Variant = bytes_to_var(raw)
 	if not (entries is Array):
 		return
+	mp.trace.note("belts begin: %d paths" % (entries as Array).size())
 	for item in BeltPath._live:
 		if not is_instance_valid(item) or not item.is_inside_tree():
 			continue
@@ -100,6 +101,7 @@ func on_belts(packed: PackedByteArray, raw_size: int) -> void:
 	# no PropManager: a ride we cannot place is dropped instead of becoming a
 	# loose item that only this player would have
 	var got: Dictionary = BeltPath.belts_from_array(entries, null)
+	mp.trace.note("belts end")
 	if OS.get_environment("MP_DEBUG_PROPS") != "":
 		var rows := 0
 		for e in entries:

@@ -584,6 +584,7 @@ func on_builds(adds: Array, removes: Array) -> void:
 	if _builds_dirty:
 		_flush_builds()
 	_applying_builds = true
+	mp.trace.note("builds begin: %s added, %s removed" % [_types_of(adds), _types_of(removes)])
 	for d in removes:
 		if d is Dictionary:
 			var n := _find_building(d)
@@ -594,8 +595,17 @@ func on_builds(adds: Array, removes: Array) -> void:
 	_bkeys = _scan_builds()
 	_builds_dirty = false
 	_applying_builds = false
+	mp.trace.note("builds end")
 	if _is_client():
 		_freeze_client_machines()
+
+
+func _types_of(dicts: Array) -> String:
+	var out := PackedStringArray()
+	for d in dicts:
+		if d is Dictionary:
+			out.append(str(d.get("type", "?")))
+	return "[" + ",".join(out) + "]"
 
 
 func _find_building(d: Dictionary) -> Node3D:
