@@ -619,6 +619,10 @@ func _toggle_debug_menu() -> void:
 		if cls == null:
 			notify(mp.t("no_debug_menu"))
 			return
+		# the 29 Sep game build dropped the menu's own key from the input map, and
+		# the menu asks for it on every key press: thousands of errors in the log
+		if not InputMap.has_action("debug_menu"):
+			InputMap.add_action("debug_menu")
 		dm = cls.new()
 		dm.name = "DebugMenu"
 		dm.player = w.get("player")
