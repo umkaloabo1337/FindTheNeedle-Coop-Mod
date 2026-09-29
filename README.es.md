@@ -10,7 +10,7 @@ Mod no oficial, sin relación con el desarrollador del juego. No incluye
 archivos del juego, solo sus propios scripts y un modelo de jugador libre
 (CC0). English: [README.md](README.md).
 
-![Panel de multijugador](screenshots/panel.png)
+![Dos jugadores en el mismo patio](screenshots/coop.png)
 
 ## Requisitos
 

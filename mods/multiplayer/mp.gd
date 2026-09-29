@@ -3,7 +3,7 @@
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
 
-const VERSION := "0.19.3"
+const VERSION := "0.19.4"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8  # players in a session, host included (Steam counts the same way)
 const WORLD_CHUNK := 60000
@@ -91,7 +91,7 @@ func _trace(what: String, size: int = -1) -> void:
 	if trace == null:
 		return
 	var from := multiplayer.get_remote_sender_id() if multiplayer.multiplayer_peer != null else 0
-	trace.note("rx %s from %d%s" % [what, from, (" n=%d" % size) if size >= 0 else ""])
+	trace.rx(what, from, size)
 
 
 # UI string in whatever language the game is set to.

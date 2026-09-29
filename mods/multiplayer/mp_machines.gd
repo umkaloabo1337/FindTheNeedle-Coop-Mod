@@ -543,9 +543,6 @@ func on_poses(packed: PackedByteArray, raw_size: int) -> void:
 			if _log:
 				print("[MPMACH] got %s but no machine of mine matches" % host_key)
 			continue
-		var e: Dictionary = batch[host_key]
-		mp.trace.note("  machine %s:%s%s%s" % [key, " flags" if e.has("f") else "",
-			" fx" if e.has("xv") else "", " moves" if e.has("t") else ""])
 		var parts := _parts_of(key)
 		if parts.is_empty():
 			if _log:
