@@ -21,6 +21,7 @@ const TICK := 1.0
 var _f: FileAccess = null
 var _t := 0.0
 var _frames := 0
+var _dirty := false  # something was written this frame
 
 
 func start(version: String) -> void:
@@ -41,6 +42,7 @@ func note(text: String) -> void:
 		return
 	_f.store_line("%d %s" % [Time.get_ticks_msec(), text])
 	_f.flush()
+	_dirty = true
 	if _f.get_length() > MAX_BYTES:
 		# start over rather than grow for ever; the end is what matters
 		_f.close()
@@ -49,6 +51,12 @@ func note(text: String) -> void:
 
 
 func _process(delta: float) -> void:
+	# a frame went by after something was written: whatever that was, it
+	# finished. After a crash, a message with no "frame" after it is the suspect.
+	if _dirty and _f != null:
+		_f.store_line("%d frame" % Time.get_ticks_msec())
+		_f.flush()
+		_dirty = false
 	_frames += 1
 	_t += delta
 	if _t < TICK:

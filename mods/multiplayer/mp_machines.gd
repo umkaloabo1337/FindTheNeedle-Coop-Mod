@@ -416,12 +416,69 @@ func _send_poses() -> void:
 				(e.get("i", PackedInt32Array()) as PackedInt32Array).size(),
 				(e.get("f", PackedInt32Array()) as PackedInt32Array).size() / 2,
 				(e.get("xv", PackedFloat32Array()) as PackedFloat32Array).size()])
+	if mp.over_steam:
+		_send_small(batch)
+		return
 	var raw := var_to_bytes(batch)
 	var packed := raw.compress(FileAccess.COMPRESSION_ZSTD)
 	# One machine's full pose is already bigger than a packet. Sent unreliably,
 	# losing any fragment lost the whole batch, so big batches and the
 	# periodic full refresh go on the reliable channel instead.
 	if _full or packed.size() > BIG_PACKET:
+		mp._rx_machines_big.rpc(packed, raw.size())
+	else:
+		mp._rx_machines.rpc(packed, raw.size())
+
+
+# Over Steam, in small pieces. Every guest crash over Steam came right after a
+# big machine update arrived (up to 9 KB in one message), and over a direct
+# connection it has never happened, so over Steam no message gets that big:
+# each machine's parts, flags and effects are split into pieces a guest can
+# apply one by one, and packed into messages of about a kilobyte.
+const PIECE_PARTS := 10
+const PIECE_PAIRS := 40
+const SMALL_PACKET := 900
+
+func _send_small(batch: Dictionary) -> void:
+	var pieces: Array = []  # [key, sub entry]
+	for key in batch:
+		var e: Dictionary = batch[key]
+		if e.has("f"):
+			var f: PackedInt32Array = e["f"]
+			for a in range(0, f.size(), PIECE_PAIRS * 2):
+				pieces.append([key, {"f": f.slice(a, a + PIECE_PAIRS * 2)}])
+		if e.has("xi") and e.has("xv"):
+			var xi: PackedInt32Array = e["xi"]
+			var xv: PackedFloat32Array = e["xv"]
+			for a in range(0, xv.size(), PIECE_PAIRS):
+				pieces.append([key, {"xi": xi.slice(a * 2, (a + PIECE_PAIRS) * 2),
+					"xv": xv.slice(a, a + PIECE_PAIRS)}])
+		if e.has("i") and e.has("t"):
+			var ids: PackedInt32Array = e["i"]
+			var rows: PackedFloat32Array = e["t"]
+			for a in range(0, ids.size(), PIECE_PARTS):
+				pieces.append([key, {"i": ids.slice(a, a + PIECE_PARTS),
+					"t": rows.slice(a * 12, (a + PIECE_PARTS) * 12)}])
+	var out := {}
+	for p in pieces:
+		var key: String = p[0]
+		if out.has(key):
+			_send_one(out)
+			out = {}
+		out[key] = p[1]
+		if var_to_bytes(out).size() > SMALL_PACKET * 3:
+			# ~3:1 compression on these; keep what is sent near a kilobyte
+			_send_one(out)
+			out = {}
+	if not out.is_empty():
+		_send_one(out)
+
+
+func _send_one(batch: Dictionary) -> void:
+	var raw := var_to_bytes(batch)
+	var packed := raw.compress(FileAccess.COMPRESSION_ZSTD)
+	# the periodic full refresh has to arrive; the moves in between may drop
+	if _full:
 		mp._rx_machines_big.rpc(packed, raw.size())
 	else:
 		mp._rx_machines.rpc(packed, raw.size())
@@ -486,6 +543,9 @@ func on_poses(packed: PackedByteArray, raw_size: int) -> void:
 			if _log:
 				print("[MPMACH] got %s but no machine of mine matches" % host_key)
 			continue
+		var e: Dictionary = batch[host_key]
+		mp.trace.note("  machine %s:%s%s%s" % [key, " flags" if e.has("f") else "",
+			" fx" if e.has("xv") else "", " moves" if e.has("t") else ""])
 		var parts := _parts_of(key)
 		if parts.is_empty():
 			if _log:
@@ -721,6 +781,10 @@ func _fx_of(key: String) -> Array:
 		return _fx[key]
 	var out: Array = []
 	for part in _parts_of(key):
+		# the game frees some parts of its own (markers, rings) while it runs
+		if part == null or not is_instance_valid(part):
+			out.append(null)
+			continue
 		var node := part as Node3D
 		var entry: Dictionary = {}
 		if node is Light3D:
@@ -828,7 +892,8 @@ func _own_material(key: String, at: int, d: Dictionary) -> ShaderMaterial:
 	if mat.has_meta("mp_own"):
 		return mat
 	var parts := _parts_of(key)
-	if at < 0 or at >= parts.size() or not (parts[at] is GeometryInstance3D):
+	if at < 0 or at >= parts.size() or parts[at] == null or not is_instance_valid(parts[at]) \
+	or not (parts[at] is GeometryInstance3D):
 		return mat
 	var own := mat.duplicate() as ShaderMaterial
 	own.set_meta("mp_own", true)
