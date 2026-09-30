@@ -301,6 +301,30 @@ func _on_belt_caught(rb: Node) -> void:
 	var id := int(rb.get_meta("mp_id"))
 	if _mine(id):
 		_boarded[id] = (rb as Node3D).global_transform
+		_hand_rider.call_deferred(rb)
+
+
+# Guest only. Most items leave the prop list when a belt takes them, and
+# _on_removed hands them to the host. A hay tuft stays an item riding the belt,
+# so it never left: it rode our belt only, which just mirrors the host's, and
+# at a splitter it went off the path and back to the start over and over. Hand
+# it over now, where it got on, and drop it from our belt: the host's belt
+# carries it from there like the host's own.
+func _hand_rider(rb: Node) -> void:
+	if rb == null or not is_instance_valid(rb) or not rb.is_inside_tree():
+		return
+	var id := int(rb.get_meta("mp_id", 0))
+	if not _mine(id) or not BeltPath.is_rider(rb as RigidBody3D):
+		return
+	var xf: Transform3D = _boarded.get(id, (rb as Node3D).global_transform)
+	_boarded.erase(id)
+	BeltPath.release(rb as RigidBody3D)
+	_owner[id] = 1
+	_goal.erase(id)
+	_hash.erase(id)
+	_puppet(rb)
+	_place(rb, xf)
+	mp._rx_prop_board.rpc_id(1, id, xf)
 
 
 # Host only. The guest's belt took one of the guest's items at xf. Take our copy
@@ -322,9 +346,10 @@ func on_board(sender: int, id: int, xf: Transform3D) -> void:
 # Hay the other player dropped: the little piles a spade leaves (HayTuft) and
 # wads. Our copy of one is frozen and claimed, and the spade passes over a
 # frozen or claimed wad, so only the player who made a pile could scoop it up
-# again. When we hold a spade and such a copy is in reach in front of us, take
-# it over first, the way picking up an item does: then it is ours, loose, and
-# the spade takes it like any other. Picking one up by hand already claims it.
+# again. When we dig with a spade and such a copy lies in reach in front of us,
+# take it over first, the way picking up an item does: then it is ours, loose,
+# and the spade takes it like any other. Picking one up by hand already claims
+# it.
 const CLAIM_REACH := 2.4   # the spade's gather reach
 
 func _claim_in_reach() -> void:
@@ -332,7 +357,7 @@ func _claim_in_reach() -> void:
 	if pl == null or not is_instance_valid(pl):
 		return
 	var tool := int(pl.get("current_tool"))
-	if tool != Player.Tool.SHOVEL:
+	if tool != Player.Tool.SHOVEL or not Input.is_action_pressed("primary"):
 		return
 	var eye: Vector3 = pl.eye_position()
 	var look: Vector3 = pl.look_direction()
@@ -341,6 +366,10 @@ func _claim_in_reach() -> void:
 			continue
 		var it: Variant = _by_id[id]
 		if it == null or not is_instance_valid(it) or not (it is HayWad) or not (it as Node3D).is_inside_tree():
+			continue
+		# riding somebody's belt is not lying on the floor: taking it froze it
+		# on the host's belt
+		if BeltPath.is_rider(it as RigidBody3D):
 			continue
 		var to: Vector3 = (it as Node3D).global_position - eye
 		if to.length() > CLAIM_REACH or to.normalized().dot(look) < 0.6:
