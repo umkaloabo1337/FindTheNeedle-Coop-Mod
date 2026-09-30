@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.19.5
+
+* Hay tufts a guest drops on a belt go through splitters and on to the
+  end. A belt takes most items out of the prop list and the guest hands
+  them to the host, but a tuft stays an item riding the belt, so it only
+  rode the guest's own belt, which just mirrors the host's. At a splitter
+  it went off the path and back to the start over and over. The guest now
+  hands a tuft to the host as soon as its belt catches it, and the host's
+  belt carries it like the host's own (reported by xxKipxkipxx).
+* Hay the host put on a belt no longer stops when a guest with a spade
+  stands next to it. The spade take-over from 0.19.4 also took tufts
+  riding a belt, and froze them there. It only takes loose ones now, and
+  only while digging.
+
 ## v0.19.4
 
 * Hay tufts the other player dropped (the little piles a full spade leaves)
