@@ -17,12 +17,43 @@ When loading an older save, recorded overpayments for the repriced ranks are cre
 
 ## Install
 
-1. Close the game and keep a backup of the existing mod and saves.
-2. Copy the ZIP’s `mods` folder beside `FindTheNeedle.exe`.
-3. Keep your existing `override.cfg` settings. Under `[autoload]`, ensure `MPMod="*mods/multiplayer/mp.gd"` is present. Keep any other add-on autoload entries.
-4. Start through Steam. The host opens a lobby and loads the existing save; friends join through Steam invitations.
+Download the ZIP from [Releases](https://github.com/umkaloabo1337/FindTheNeedle-Coop-Mod/releases).
 
-The base ZIP does not replace `override.cfg`. See [German instructions](mods/multiplayer/ANLEITUNG-DE.txt) for detailed controls.
+1. Close the game and keep a backup of the existing mod and saves.
+2. Copy the ZIP’s `mods` folder beside `FindTheNeedle.exe` (Steam: right-click the game → Manage → Browse local files).
+3. Open `override.cfg` in the same folder and make sure it contains:
+
+   ```
+   [autoload]
+   MPMod="*mods/multiplayer/mp.gd"
+   ```
+
+   Keep your existing settings and any other add-on autoload entries.
+4. **Recommended for big yards** (otherwise the screen can go black after about an hour, D3D12 "not enough room in the RESOURCES descriptor heap"):
+
+   ```
+   [rendering]
+   rendering_device/d3d12/max_resource_descriptors=262144
+   ```
+
+   If `[rendering]` already exists, add only the second line under it. If the line is missing, the mod adds it itself on the first start (the old file is kept as `override.cfg.mp_backup`); it applies from the next start.
+5. Start through Steam. The host opens a lobby and loads the existing save; friends join through Steam invitations.
+
+Game updates replace `override.cfg`; add the lines again after one. Every player needs the same mod version. See the [English](mods/multiplayer/README.txt), [German](mods/multiplayer/ANLEITUNG-DE.txt) and [Spanish](mods/multiplayer/LEEME.txt) instructions for detailed controls.
+
+## New in 0.19.6-umka1337 (.87–.94)
+
+- **Smoother belts for guests.** Mergers and splitters run on guests too; a belt that differs from the host's is corrected rider by rider instead of being emptied and refilled; riders renamed at a seam are recognised; queues in front of machines move up smoothly. Near a walking guest the share of riders seen jumping fell from 18–28% to 7–17%, also with 80–150 ms extra delay. Belts are not perfect yet: belts inside machines still show the host's picture.
+- **The ending for everyone.** The needle case's button is pressed on every case, the forged key is one key for all (picked up, it goes for the others; put down, it lies there for everyone), the key turned in the floor hatch opens it everywhere, and the show below starts for everyone. Afterwards everyone stays in the yard and the host saves again.
+- **Lost key:** if the delivery board says the key is out but nobody can find it, type `/schluessel` (or `/key`, `/llave`) in the chat (Y). The key is put at your feet for everyone.
+- **Creative mode (sandbox)** from the game update of 13.11. works for guests: free building, everything unlocked, the F1 sandbox menu, and spawned items reach everyone. The cozy mode and the yard layout (shed, stand and shop spot) also come from the host.
+- **Machine signs and panel hints** on guests say what the host's machines say (e.g. NO POWER instead of NOT FED).
+- **Delivery truck:** its load stays laid out on guests between contracts.
+- **Depot:** stock, refused kinds, limits and the in/out rates match on all players.
+- **Jetpacks** of other players show their flames, smoke and glow.
+- **Dropped connections** are written to `%APPDATA%\Godot\app_userdata\FindTheNeedle\mp_drops.log` (time, ping, Steam's reason and the events before). The file survives a restart; after a drop, send it from both sides together with `mp_trace.log`.
+
+The full list is in the [changelog](CHANGELOG.md).
 
 ## Other mods and removal
 
@@ -84,7 +115,7 @@ The local checks include 1,200 conveyor records, a guest process crash and rejoi
 
 ## Verification and limits
 
-Validation combines isolated GDRE/Godot tests with native headless demo instances using the BeltRunCore extension. Current checks use Demo V66, Steam build 25963876; older results refer to V62. Separate host and guest save directories protect existing saves. Local multiplayer tests cover scanner inventory, competing and repeated purchases, personal tool transfers, vacuum/hopper quantities, production routes and the complete prestige save/reload. Packet loss and duplication are injected on loopback; Steam multiplayer is not started.
+Releases from 0.19.6-umka1337 on are tested with a host and a guest of the Early Access game (including the update of 13.11.2026) on one PC, headless, with the players' own saves (a mid-game yard and an endgame yard). Belt smoothness is measured as the share of riders near a walking guest that visibly jump or vanish. Earlier validation combined isolated GDRE/Godot tests with native headless demo instances using the BeltRunCore extension (Demo V66, Steam build 25963876; older results refer to V62). Separate host and guest save directories protect existing saves. Local multiplayer tests cover scanner inventory, competing and repeated purchases, personal tool transfers, vacuum/hopper quantities, production routes and the complete prestige save/reload. Packet loss and duplication are injected on loopback; Steam multiplayer is not started.
 
 These results do **not** establish GPU frame rates, a two-PC Steam/WAN session, or freedom from every possible bug. Headless runs cannot measure rendered graphics performance. The supplied older game copy identifies as V33 and was not used as the V62 compatibility baseline. Host and single-player saves now include the vacuum fill and matching transfer reservation in the same snapshot as the world. Loading restores that snapshot once, including an uncommitted reservation or a transfer already received by a hopper. A save is deferred while shared floor cleanup is pending, and pause-menu exit waits for a successful save. A guest process restart now restores its last committed vacuum fill from a local journal scoped to the player profile and world. Open direct belt/hopper transfers are reconciled against host receipts before the vacuum is unlocked. The journal uses two checked generations and ignores incomplete writes. Keep the same local profile and host world when reconnecting. Recovery of unconfirmed local cleanup reports and rollback of a host to an earlier world snapshot remain outside this fix. Unsaved progress after a host crash still rolls back to the last successful save.
 
@@ -92,6 +123,6 @@ Only the host saves the shared world. Tools remain personal. Machines simulate o
 
 ## Credits and source
 
-Original multiplayer mod: [AleDev11](https://github.com/AleDev11/FindTheNeedle-Coop-Mod). Farmer model: Quaternius, CC0. GodotSteam: MIT. Steamworks SDK: Valve Corporation. The hopper shell is original procedural geometry in this fork; its feeder and cabinet detail reference installed game resources at runtime. Game binaries, decoded game sources, private saves and local test fixtures are not distributed in this repository.
+Maintained by umka1337. Original multiplayer mod and idea: [AleDev11](https://github.com/AleDev11/FindTheNeedle-Coop-Mod) — thank you. Maintenance builds up to 0.19.6-xRangerDE.93, which this release builds on: xRangerDE — thank you. Farmer model: Quaternius, CC0. GodotSteam: MIT. Steamworks SDK: Valve Corporation. The hopper shell is original procedural geometry in this fork; its feeder and cabinet detail reference installed game resources at runtime. Game binaries, decoded game sources, private saves and local test fixtures are not distributed in this repository.
 
 The optional [Production Speed Update](https://www.nexusmods.com/findtheneedle/mods/9), [Collection Tool Upgrades](https://www.nexusmods.com/findtheneedle/mods/11) and [Autonomous Mice](https://www.nexusmods.com/findtheneedle/mods/7) originated with BadHippo. Their additional production/tool ranks and autonomous mouse behavior are separate from this fork's multiplayer integration and balance changes. The main ZIP does not include those add-ons. The integrated M-key transfer does not require the separate [Vaccuum Drops All](https://www.nexusmods.com/findtheneedle/mods/24) by Pruplexedv6.
