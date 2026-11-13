@@ -1,0 +1,62 @@
+name: Release
+
+# Push a tag such as v0.19.6-umka1337.94 and GitHub packs mods/multiplayer
+# into FindTheNeedle-Coop-<version>.zip and publishes it as a release, with
+# that version's section of CHANGELOG.md as the notes.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the version
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          in_mod=$(sed -n 's/^const VERSION := "\(.*\)"/\1/p' mods/multiplayer/mp.gd)
+          if [ "$version" != "$in_mod" ]; then
+            echo "Tag $version does not match VERSION $in_mod in mp.gd" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Pack the mod
+        run: |
+          zip -r -X "FindTheNeedle-Coop-${{ steps.version.outputs.version }}.zip" mods/multiplayer \
+            -x "mods/multiplayer/mp_test.gd" "*.import"
+          unzip -l "FindTheNeedle-Coop-${{ steps.version.outputs.version }}.zip" | tail -1
+
+      - name: Release notes
+        run: |
+          awk -v v="${{ steps.version.outputs.version }}" '
+            /^## / { if (on) exit; if (index($0, v)) { on = 1; next } }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          cat >> notes.md <<'EOF'
+
+          ### Install
+          Unzip into the game folder (next to FindTheNeedle.exe), so that `mods/multiplayer` sits there,
+          and add to `override.cfg`:
+
+          ```
+          [autoload]
+          MPMod="*mods/multiplayer/mp.gd"
+          ```
+
+          Every player needs the same version. Details: `mods/multiplayer/README.txt` (English),
+          `ANLEITUNG-DE.txt` (Deutsch), `LEEME.txt` (Español).
+          EOF
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Find The Needle Co-op ${{ steps.version.outputs.version }}
+          body_path: notes.md
+          files: FindTheNeedle-Coop-${{ steps.version.outputs.version }}.zip
