@@ -12,7 +12,11 @@ const INPUT_FIELDS := ["_state", "_anchor", "_anchor_dir", "_anchor_side", "_anc
 	"_upstream", "_stair_outward", "_ghost_turn", "_roof_turn", "_t_turn", "_grid_on",
 	"_snap_off", "_work_height", "_work_base", "_reach", "pipe_shape", "_fit_roll",
 	"_tee_stop", "_tee_stop_at", "_finished_at", "_route", "_route_pinned",
-	"_turned_since_place", "_copied_since_place", "_mp_yaw_locked", "_mp_yaw", "_mp_flow_manual", "_mp_parallel"]
+	"_turned_since_place", "_copied_since_place", "_mp_yaw_locked", "_mp_yaw", "_mp_flow_manual", "_mp_parallel",
+	# the skyline crane is set in two clicks: the head first, then the far
+	# end; without these the host's tool never saw the head and every crane
+	# came back "purchase not completed", for the host as well
+	"_crane_step", "_crane_head", "_crane_yaw", "_crane_sections", "_crane_extra"]
 const COUNTER_FIELDS := ["dismantled", "reversed", "upgraded", "downgraded", "placed",
 	"placed_on_grid", "placed_turned", "placed_copied"]
 var mp_economy: Node
@@ -215,11 +219,12 @@ func _camera_ray() -> Dictionary:
 		return ray
 	return {}
 
-func _raw_surface_hit() -> Dictionary:
+func _raw_surface_hit(reach: float = -1.0) -> Dictionary:
 	var ray := _camera_ray()
 	if ray.is_empty():
-		return super._raw_surface_hit()
-	var query := PhysicsRayQueryParameters3D.create(ray.origin, ray.origin + ray.direction * float(ray.length), Cfg.BUILD_SURFACE_MASK)
+		return super._raw_surface_hit(reach)
+	var length: float = reach if reach > 0.0 else float(ray.length)
+	var query := PhysicsRayQueryParameters3D.create(ray.origin, ray.origin + ray.direction * length, Cfg.BUILD_SURFACE_MASK)
 	query.collide_with_areas = false
 	var hit := Cutaway.intersect_ray(get_world_3d().direct_space_state, query, true)
 	var body := hit.get("collider") as Node

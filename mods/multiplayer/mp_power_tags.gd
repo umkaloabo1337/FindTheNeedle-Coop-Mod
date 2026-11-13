@@ -11,11 +11,11 @@ func rename(tag: int, text: String) -> void:
 	else:
 		super.rename(tag, text)
 
-func set_priority(tag: int, level: int) -> void:
+func set_order(machine: Node, level: int) -> void:
 	if _power_remote():
-		mp_power.request_tag("priority", tag, level)
+		mp_power.request_tag("order", -1, level, machine)
 	else:
-		super.set_priority(tag, level)
+		super.set_order(machine, level)
 
 func set_tag(machine: Node, tag: int) -> void:
 	if _power_remote():

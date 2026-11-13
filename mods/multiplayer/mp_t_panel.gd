@@ -1,4 +1,5 @@
 extends "res://scripts/ui/t_junction_panel.gd"
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 var mp_economy: Node
 var _request_id := 0
@@ -72,7 +73,7 @@ func accept_result(seq: int, result: Dictionary) -> void:
 	_completion = result.duplicate(true)
 	_completed_at = Time.get_ticks_msec()
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not _active():
 		if _was_active:
 			reset_mp_request()
@@ -145,3 +146,9 @@ func reset_mp_request() -> void:
 	_refusal = ""
 	_shown = ""
 	_refresh()
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("t_panel", Time.get_ticks_usec() - __t)

@@ -12,7 +12,7 @@ func _take(body: RigidBody3D, at: Dictionary) -> void:
 		return
 	super._take(body, at)
 
-func _carry(delta: float) -> void:
+func _carry(delta: float, only: Variant = null) -> void:
 	for index in range(_carried.size() - 1, -1, -1):
 		var row: Dictionary = _carried[index]
 		var body: Variant = row.get("body")
@@ -22,7 +22,10 @@ func _carry(delta: float) -> void:
 		_carried.remove_at(index)
 		_unfit(row)
 		_take(body, {"s": row.s, "sink": row.sink})
-	super._carry(delta)
+	if only == null:
+		super._carry(delta)
+	else:
+		super._carry(delta, only)
 
 func _follow_tech() -> void:
 	super._follow_tech()

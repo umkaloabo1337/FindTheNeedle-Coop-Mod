@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const BuildSnapshot = preload("res://mods/multiplayer/mp_build_snapshot.gd")
 
@@ -185,7 +186,7 @@ func on_request(peer: int, token: String, seq: int, action: String, args: Dictio
 	_queued[key] = true
 	_queue.append({"peer": peer, "seq": seq, "action": action, "args": args.duplicate(true)})
 
-func _physics_process(_delta: float) -> void:
+func _mp_timed_physics_process(_delta: float) -> void:
 	if mp == null or not mp.active() or not mp.is_host or _queue.is_empty():
 		return
 	var index := -1
@@ -242,7 +243,7 @@ func _physics_process(_delta: float) -> void:
 	publish()
 	_reply(peer, seq, result)
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if mp == null or not mp.active() or mp.is_host or pending.is_empty():
 		return
 	_retry += delta
@@ -694,7 +695,8 @@ func _build(actor: Player, action: String, args: Dictionary) -> Dictionary:
 		var value: Variant = inputs[key]
 		if value is PackedVector3Array and value.size() > 256:
 			return _failure("purchase_declined")
-		if value is Vector3 and not value.is_finite() and key not in ["_finished_at", "_tee_stop_at"]:
+		# _crane_head is (inf, inf, inf) until the crane's head is set
+		if value is Vector3 and not value.is_finite() and key not in ["_finished_at", "_tee_stop_at", "_crane_head"]:
 			return _failure("purchase_declined")
 		if value is Vector2 and (not value.is_finite() or value.length() > 10000.0):
 			return _failure("purchase_declined")
@@ -895,3 +897,15 @@ func _result_rpc(action: String) -> Callable:
 	if action == "power":
 		return mp._rx_power_result
 	return mp._rx_vacuum_result if action.begins_with("vacuum_") else mp._rx_economy_result
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("economy", Time.get_ticks_usec() - __t)
+
+
+func _physics_process(_delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_physics_process(_delta)
+	__MPCost.add("economy(physics)", Time.get_ticks_usec() - __t)

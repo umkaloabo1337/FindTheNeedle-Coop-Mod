@@ -1,6 +1,6 @@
 # Find The Needle co-op mod
 
-Maintained by **xRangerDE**. Community maintenance fork of [AleDev11’s co-op mod](https://github.com/AleDev11/FindTheNeedle-Coop-Mod), version `0.19.6-xRangerDE.80`, based on upstream 0.19.5. This build targets the Windows Steam demo. The add-on and router regression checks cover game builds **25963876** and **26260645**.
+Maintained by **umka1337**. Based on [AleDev11’s co-op mod](https://github.com/AleDev11/FindTheNeedle-Coop-Mod) (thanks for the original mod and the idea) and on the maintenance builds by **xRangerDE** (thanks for the groundwork). Current version `0.19.6-umka1337.94`, for the Early Access game on Windows/Steam.
 
 The multiplayer menu follows three steps: create a session, invite friends, then select a save. Hosts can open the native save selector directly; guests see their actual connection and loading status. Direct IP connections remain available in the expandable advanced section.
 

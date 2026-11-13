@@ -1,4 +1,5 @@
 extends ConveyorJoiner
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const Model = preload("res://mods/multiplayer/mp_receiver_model.gd")
 var port_count := 4
@@ -370,7 +371,7 @@ func _add_transfer_surface(parent: Node3D, outline: PackedVector3Array, side: in
 	_transfer_surfaces.append({"body": body, "side": side})
 	_refresh_transfer_surfaces()
 
-func _physics_process(_delta: float) -> void:
+func _mp_timed_physics_process(_delta: float) -> void:
 	_refresh_transfer_surfaces()
 
 func _refresh_transfer_surfaces() -> void:
@@ -397,3 +398,9 @@ func set_covered(on: bool) -> void:
 	covered = on
 	if is_instance_valid(_body):
 		Model.set_covered(self, on)
+
+
+func _physics_process(_delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_physics_process(_delta)
+	__MPCost.add("receiver(physics)", Time.get_ticks_usec() - __t)

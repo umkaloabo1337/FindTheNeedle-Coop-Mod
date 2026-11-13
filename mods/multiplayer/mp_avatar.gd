@@ -3,6 +3,7 @@
 # Poses arrive ~20 times a second and are smoothed.
 # setup_local() turns it into our own headless body, seen when looking down.
 extends Node3D
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 # the game's own msgids, so the label reads like the rest of its UI
 const TOOL_NAMES := ["Hand", "Spade", "Pitchfork", "Broom", "Toy Shovel",
@@ -492,6 +493,25 @@ func _mesh(m: Mesh, mat: Material) -> MeshInstance3D:
 
 # ---------------------------------------------------------------- pose
 
+const JET_VFX_BASE := "res://scripts/vfx/jetpack_vfx.gd"
+var _jet: Node3D
+
+# The player's jetpack fires (their pose says so): the game's flames on the
+# puppet's back. Built the first time it fires.
+func set_jet(on: bool) -> void:
+	if _jet == null:
+		if not on or _mp != null or not ResourceLoader.exists(JET_VFX_BASE):
+			return
+		var script: Script = load("res://mods/multiplayer/mp_jet_vfx.gd")
+		if script == null or not script.can_instantiate():
+			return
+		_jet = script.new()
+		_jet.name = "JetpackVfx"
+		add_child(_jet)
+	if is_instance_valid(_jet):
+		_jet.set("mp_lit", on)
+
+
 func set_target(pos: Vector3, yaw: float, pitch: float, tool: int, crouch: float, moving: float) -> void:
 	_target_pos = pos
 	_target_yaw = yaw
@@ -508,7 +528,7 @@ func set_target(pos: Vector3, yaw: float, pitch: float, tool: int, crouch: float
 		_set_tool_model(tool)
 
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if _mp != null:
 		_follow_player(delta)
 		return
@@ -1004,3 +1024,9 @@ func set_tool_load(fill: float) -> void:
 		_tool_hay.global_position = _posed.mount.to_global(point)
 	_tool_hay.scale = Vector3.ONE * lerpf(0.18, 0.55, clampf(fill, 0.0, 1.0))
 	_tool_hay.visible = true
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("avatar", Time.get_ticks_usec() - __t)

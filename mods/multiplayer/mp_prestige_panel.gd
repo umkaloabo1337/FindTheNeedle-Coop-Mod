@@ -1,4 +1,5 @@
 extends Control
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const Report = preload("res://mods/multiplayer/mp_needle_report.gd")
 const SIZES := ["standard", "big", "huge", "mountain"]
@@ -106,7 +107,7 @@ func _select(size_id: String) -> void:
 	for index in _choices.size():
 		_choices[index].set_pressed_no_signal(SIZES[index] == size_id)
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	_clock += delta
 	if _clock >= 1.0:
 		_clock = 0.0
@@ -177,3 +178,9 @@ func _de() -> bool:
 
 func _t(german: String, english: String) -> String:
 	return preload("res://mods/multiplayer/mp_i18n.gd").phrase(german, english)
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("prestige_panel", Time.get_ticks_usec() - __t)

@@ -56,7 +56,7 @@ static func resolve(sync: Node, entries: Array, paths: Array, cached: Dictionary
 		if found == null or claimed.has(found.get_instance_id()) or not found.records_props or not found.run.has_method("_insert_row") or not found.run.has_method("_ev_board"):
 			return {"ready": false}
 		claimed[found.get_instance_id()] = true
-		assignments.append([found, entry.records])
+		assignments.append([found, entry.records, int(entry.get("born", 0))])
 	return {"ready": true, "assignments": assignments}
 
 

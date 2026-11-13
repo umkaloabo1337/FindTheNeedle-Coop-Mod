@@ -1,4 +1,5 @@
 extends CanvasLayer
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 var service: Node
 var _id := 0
@@ -99,7 +100,7 @@ func _fit() -> void:
 func _portion_changed(value: float) -> void:
 	_amount.text = service._tr("Ausgabe: %s Halme je Portion", "Output: %s strands per portion") % service._number(int(value))
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not visible:
 		return
 	_timer -= delta
@@ -130,3 +131,9 @@ func _input(event: InputEvent) -> void:
 	if visible and event.is_action_pressed("free_mouse"):
 		close()
 		get_viewport().set_input_as_handled()
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("hopper_panel", Time.get_ticks_usec() - __t)

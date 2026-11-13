@@ -1,4 +1,5 @@
 extends "res://scripts/world/hay_selling_stand.gd"
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const NATIVE_STAND = preload("res://scripts/world/hay_selling_stand.gd")
 var _visual_clock := 0.0
@@ -57,8 +58,8 @@ func _earn_notch(strands: float) -> void:
 	_visual_worth += maxf(strands, 0.0)
 
 
-func _celebrate(amount: float, coins: int, best := false, combo_best := false) -> void:
-	super._celebrate(amount, coins, best, combo_best)
+func _celebrate(amount: float, coins: int, best := false, combo_best := false, cheap := false) -> void:
+	super._celebrate(amount, coins, best, combo_best, cheap)
 	if _visual_payouts.size() < 32:
 		_visual_payouts.append([amount, best, combo_best])
 	else:
@@ -72,7 +73,7 @@ func _drop_coins(count: int) -> void:
 		super._drop_coins(count)
 
 
-func _physics_process(delta: float) -> void:
+func _mp_timed_physics_process(delta: float) -> void:
 	super._physics_process(delta)
 	_visual_clock += delta
 	if _visual_clock < 0.1:
@@ -163,3 +164,9 @@ func mp_move_to(pose: Transform3D) -> void:
 	_build_belt()
 	if is_instance_valid(_sale_fx):
 		_sale_fx.watch(_sack, _sack_mesh, _sack_fill, _coins_at - Vector3(0.0, COIN_SPOUT_UP, 0.0))
+
+
+func _physics_process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_physics_process(delta)
+	__MPCost.add("selling_stand(physics)", Time.get_ticks_usec() - __t)

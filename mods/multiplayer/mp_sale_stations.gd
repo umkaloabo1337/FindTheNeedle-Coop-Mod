@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const Store = preload("res://mods/multiplayer/mp_sale_state.gd")
 const Scale = preload("res://mods/multiplayer/mp_sale_scale.gd")
@@ -543,7 +544,7 @@ func request_feed_belt(id: int, enabled: bool) -> int:
 	if ray.has("view"):args.build_view = ray.view
 	return _request("sale_configure", args)
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not _usable():
 		return
 	_clock += delta
@@ -599,3 +600,9 @@ func _request_action(action: String) -> String:
 
 func _station_meta() -> String:
 	return "mp_sale_station"
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("sale_stations", Time.get_ticks_usec() - __t)

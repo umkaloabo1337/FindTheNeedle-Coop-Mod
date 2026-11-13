@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const MODEL := "res://mods/ftn_mice/mouse.glb"
 const MAX_MICE := 10
@@ -37,7 +38,7 @@ func _exit_tree() -> void:
 func _ready_for_state() -> bool:
 	return _running and is_instance_valid(mp) and mp.active() and is_instance_valid(world_sync) and is_instance_valid(world_sync.world) and not world_sync._frozen and is_instance_valid(world_sync.economy) and world_sync.economy.epoch != ""
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not _ready_for_state():
 		_clear_views()
 		return
@@ -209,3 +210,9 @@ func _remove_view(id: int) -> void:
 func _clear_views() -> void:
 	for id in _views.keys():
 		_remove_view(id)
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("mice", Time.get_ticks_usec() - __t)

@@ -3,6 +3,7 @@
 # built, freed when the scene changes. All network traffic goes through MPMod's
 # RPCs; this node only reads and applies game state.
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const DiagnosticState = preload("res://mods/multiplayer/mp_diagnostic_state.gd")
 const BuildSnapshot = preload("res://mods/multiplayer/mp_build_snapshot.gd")
@@ -43,7 +44,9 @@ const CLIENT_FROZEN := ["piston_rakes", "robotic_arms", "hay_drones", "scanners"
 	"compressors", "pulpers", "papers", "briquette_presses", "wrappers", "silos",
 	"pelletizers", "tube_launchers", "dump_hatches", "needle_radars",
 	"generators", "boreholes", "splitters", "joiners", "hay_lifts", "hay_stairs",
-	"cabinets"]
+	"cabinets", "hay_excavators", "skyline_cranes", "pipe_pumps"]
+const RUNNING_JUNCTIONS := ["splitters", "joiners"]
+var _freeze_junctions := OS.get_environment("MP_FREEZE_JUNCTIONS") != ""
 
 const BUILD_ARRAYS := ["conveyors", "corners", "water_mains", "water_splitters",
 	"robotic_arms", "platforms", "stairs", "railings", "walls", "roofs", "scanners",
@@ -78,6 +81,7 @@ var belts_sync: Node  # what is riding on the belts
 var machines_sync: Node  # how the machines move and what they are set to
 var strands_sync: Node  # loose straw on the ground
 var contracts_sync: Node  # the delivery truck and its contract
+var ending_sync: Node  # the needle key, the floor hatch and the show below
 var _tech_script: Script
 var tools_sync: Node
 var economy: Node
@@ -96,6 +100,10 @@ var _pose_crouch := 0.0
 var _pose_moving := 0.0
 var _pose_tool := -1
 var _pose_hands := 0
+# the pose's "hands" number: straws (low 4 bits), needle type + 1 above them,
+# and whether the jetpack fires (bit 20)
+const HANDS_MASK := 0xFFFF
+const HANDS_JET := 1 << 20
 var _pose_fill := 0.0
 var _pose_view := Vector4.ZERO
 
@@ -188,6 +196,10 @@ func _ready() -> void:
 	boards_sync.name = "MPBoards"
 	add_child(boards_sync)
 	boards_sync.start(mp, world)
+	ending_sync = (load(mp.base_dir + "/mp_ending.gd") as Script).new()
+	ending_sync.name = "MPEnding"
+	add_child(ending_sync)
+	ending_sync.start(mp, world)
 	tools_sync = load(mp.base_dir + "/mp_tools.gd").new()
 	add_child(tools_sync)
 	tools_sync.start(mp, world)
@@ -300,6 +312,8 @@ func shutdown() -> void:
 		strands_sync.shutdown()
 	if contracts_sync != null and is_instance_valid(contracts_sync):
 		contracts_sync.shutdown()
+	if ending_sync != null and is_instance_valid(ending_sync):
+		ending_sync.shutdown()
 	if boards_sync != null and is_instance_valid(boards_sync):
 		boards_sync.shutdown()
 	clear_avatars()
@@ -387,7 +401,7 @@ func _is_client() -> bool:
 	return mp.active() and not mp.is_host
 
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not mp.active() or multiplayer.multiplayer_peer == null:
 		return
 	if multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
@@ -397,6 +411,7 @@ func _process(delta: float) -> void:
 	if _pose_t >= 1.0 / POSE_HZ:
 		_pose_t = 0.0
 		_send_pose()
+	_hook_hatch()
 	if _frozen:
 		return
 	if _pending_digest != null and _reconcile_slot.take():
@@ -460,6 +475,9 @@ func _send_pose() -> void:
 		crouch = float(player.crouch_amount())
 	var moving: float = (player.velocity * Vector3(1, 0, 1)).length() if "velocity" in player else 0.0
 	var hands := _hands()
+	var jet: Variant = player.get("jetpack")
+	if jet != null and is_instance_valid(jet) and jet.has_method("is_thrusting") and jet.is_thrusting():
+		hands |= HANDS_JET
 	var tool_fill := _tool_fill()
 	var build_view := preload("res://mods/multiplayer/mp_view_interest.gd").capture(build_camera)
 	var unchanged := _pose_valid \
@@ -524,7 +542,9 @@ func on_pose(id: int, pos: Vector3, yaw: float, pitch: float, tool: int, crouch:
 	a.set_target(pos, yaw, pitch, tool, crouch, moving)
 	a.set_tool_load(tool_fill)
 	if a.has_method("set_hands"):
-		a.set_hands(hands & 15, (hands >> 4) - 1)
+		a.set_hands(hands & 15, ((hands & HANDS_MASK) >> 4) - 1)
+	if a.has_method("set_jet"):
+		a.set_jet((hands & HANDS_JET) != 0)
 	if strands_sync != null and is_instance_valid(strands_sync):
 		# one straw is a straw; from two up the farmer holds a small ball of hay
 		var straws: int = hands & 15
@@ -747,6 +767,10 @@ func on_hay_want(pid: int, blocks: PackedInt32Array) -> void:
 
 # ---------------------------------------------------------------- buildings
 
+const FLUSH_IDLE_MS := 10000
+var _last_flush_scan := -100000
+
+
 func _on_builds_changed() -> void:
 	if not _applying_builds:
 		_builds_dirty = true
@@ -794,6 +818,16 @@ func _build_tick() -> void:
 
 
 func _flush_builds() -> void:
+	# The power sync calls this every second and some requests after every
+	# action, and each call wrote out every building in the yard to compare.
+	# Without a change the game told us about, a safety pass every
+	# FLUSH_IDLE_MS is enough.
+	var now := Time.get_ticks_msec()
+	if not _builds_dirty and now - _last_flush_scan < FLUSH_IDLE_MS:
+		if _is_client():
+			_freeze_client_machines()
+		return
+	_last_flush_scan = now
 	_builds_dirty = false
 	var cur := _scan_builds()
 	var adds: Array = []
@@ -1121,6 +1155,28 @@ func _add_buildings(dicts: Array) -> void:
 		builds.changed.emit()
 
 
+# Every list the BuildManager keeps buildings in. The EA release added lists
+# (excavators, cranes, pumps, belt poles, fixtures ...) that a fixed list here
+# did not know, so adding one building on a guest could cost it those.
+func _building_arrays() -> Array:
+	var out: Array = BUILD_ARRAYS + BUILD_EXTRAS
+	for property in builds.get_property_list():
+		var name := String(property.name)
+		if name.begins_with("_") or name in out or int(property.type) != TYPE_ARRAY 				or not (int(property.usage) & PROPERTY_USAGE_SCRIPT_VARIABLE):
+			continue
+		var arr: Variant = builds.get(name)
+		if not (arr is Array) or arr.is_empty():
+			continue
+		var buildings := true
+		for item in arr:
+			if not (item is Node) or not item.has_method("to_dict"):
+				buildings = false
+				break
+		if buildings:
+			out.append(name)
+	return out
+
+
 func _restore_buildings(dicts: Array) -> void:
 	var tags: Variant = builds.get("tags")
 	var tag_state := {}
@@ -1130,12 +1186,12 @@ func _restore_buildings(dicts: Array) -> void:
 			if data is Dictionary and data.get("type") == "power_tags":
 				replace_tags = not (Cfg.DEMO and "power_tags" in BuildManager.DEMO_WITHHELD_BUILDS)
 		if not replace_tags:
-			for field in ["names", "priorities", "_of", "_machine", "_pending"]:
+			for field in ["names", "_of", "_machine", "_order", "_pending", "_pending_order"]:
 				var value: Variant = tags.get(field)
 				if value != null:
 					tag_state[field] = value.duplicate()
 	var parked := {}
-	for a in BUILD_ARRAYS + BUILD_EXTRAS:
+	for a in _building_arrays():
 		var arr: Variant = builds.get(a)
 		if arr is Array:
 			parked[a] = arr.duplicate()
@@ -1197,6 +1253,15 @@ func _freeze_client_machines() -> void:
 	if is_instance_valid(stand):
 		mp._guard_sale_stand(stand)
 	for a in CLIENT_FROZEN:
+		# Belt junctions run here too. Frozen, a merger never let the next
+		# rider in, so every belt in front of one stood still on a guest while
+		# the host's moved on, and each list from the host made the whole
+		# queue jump forward (some 200 junction belts around a player in a big
+		# yard). Where ours picks another rider than the host's, the belt
+		# lists put it right. Their jam breaking stays the host's
+		# (mp_junction_jam).
+		if a in RUNNING_JUNCTIONS and not _freeze_junctions:
+			continue
 		var arr: Variant = builds.get(a)
 		if not (arr is Array):
 			continue
@@ -1245,11 +1310,17 @@ func _state_tick() -> void:
 	if mp.is_host:
 		var snap := _capture_state()
 		snap["income_per_minute"] = GameState.income_per_minute()
+		if "hatch_open" in GameState:
+			snap["hatch_open"] = bool(GameState.get("hatch_open"))
 		for f in HOST_ABS + HOST_MAX:
 			snap[f] = GameState.get(f)
 		for pid in mp.players.keys():
 			if pid != 1 and str(mp.players[pid].get("state", "")) == "world":
 				mp._rx_state_snap.rpc_id(pid, int(_peer_ack.get(pid, 0)), snap, mp._outgoing_world_seed())
+		return
+	# between leaving a session and the next one this side is neither: an
+	# rpc to peer 1 would go to ourselves
+	if not mp.active() or multiplayer.multiplayer_peer == null or multiplayer.get_unique_id() == 1:
 		return
 	var cur := _capture_state()
 	var delta := {}
@@ -1316,7 +1387,7 @@ func on_state_delta(pid: int, seq: int, delta: Dictionary) -> void:
 	_emit_state_signals(before)
 
 
-func on_state_snap(ack: int, snap: Dictionary) -> void:
+func _mp_timed_on_state_snap(ack: int, snap: Dictionary) -> void:
 	if mp.is_host:
 		return
 	var income: Variant = snap.get("income_per_minute")
@@ -1387,6 +1458,8 @@ func on_state_snap(ack: int, snap: Dictionary) -> void:
 				nv[i] = 1
 		_st_base[a] = nb
 		GameState.set(a, nv)
+	if snap.get("hatch_open") == true:
+		open_hatch_here()
 	for f in HOST_ABS:
 		if snap.has(f) and snap[f] != null:
 			GameState.set(f, snap[f])
@@ -1514,6 +1587,21 @@ func build_payload(pid: int) -> Dictionary:
 			"money_earned": GameState.money_earned,
 		},
 	}
+	# The run's mode and yard layout live in the save's meta, and a guest
+	# loads the world through it: without them a guest in the host's creative
+	# (sandbox) yard played a normal run (building cost money, nothing was
+	# unlocked, no F1 menu), a cozy yard lost its rules, and a moved stand,
+	# shop or shed fell back to where a new yard has them.
+	for pair in [["sandbox", "current_sandbox"], ["cozy", "current_cozy"]]:
+		var v: Variant = SaveManager.get(pair[1])
+		if v is bool:
+			out.meta[pair[0]] = v
+	if "RULES_STAGES" in SaveManager.get_script().get_script_constant_map():
+		out.meta["rules"] = SaveManager.get_script().get_script_constant_map()["RULES_STAGES"]
+	for pair in [["shed_bays", "shed_long_bays"], ["shed_grid", "shed_grid"], ["stand_spot", "stand_spot"], ["shop_spot", "shop_spot"]]:
+		var v: Variant = Cfg.get(pair[1])
+		if v != null:
+			out.meta[pair[0]] = v
 	out.state["owned_tools"] = tools_sync.inventory_for(pid).keys()
 	out.state.erase("mp_personal_tools")
 	if pid != 1:
@@ -1565,6 +1653,8 @@ func send_full_sync(pid: int) -> void:
 		machines_sync.send_all(pid)
 	if is_instance_valid(power_sync):
 		power_sync.publish(pid, true)
+	if contracts_sync != null and is_instance_valid(contracts_sync):
+		contracts_sync.send_to(pid)
 
 
 func on_full_sync(heights: PackedFloat32Array, host_builds: Array, tech: Dictionary, needles: Array = []) -> void:
@@ -1610,6 +1700,9 @@ func on_full_sync(heights: PackedFloat32Array, host_builds: Array, tech: Diction
 	Tech.from_dict(tech)
 	_tech_mute = false
 	_st_base = _capture_state()
+	if _is_client() and mp._resync_asked_at > 0:
+		mp._resync_asked_at = 0
+		mp.ui.notify(preload("res://mods/multiplayer/mp_i18n.gd").phrase("Welt mit dem Host synchronisiert.", "World synced with the host."))
 
 
 func _on_pile_replaced() -> void:
@@ -1931,3 +2024,65 @@ func _tool_fill() -> float:
 	if is_instance_valid(tool) and tool.has_method("fill_fraction"):
 		return clampf(float(tool.fill_fraction()), 0.0, 1.0)
 	return 0.0
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("world", Time.get_ticks_usec() - __t)
+
+
+func on_state_snap(ack: int, snap: Dictionary) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_on_state_snap(ack, snap)
+	__MPCost.add("world.on_state_snap", Time.get_ticks_usec() - __t)
+
+
+# ---------------------------------------------------------------- floor hatch
+
+# The hatch under the pile that the needle key opens. Only the player who
+# turned the key saw it open: nothing about it travelled. A guest who opens it
+# tells the host; the host says in every state snapshot whether it is open,
+# and whoever still has it shut opens it the game's own way.
+var _hatch_hooked: Node = null
+var _hatch_opening_here := false
+
+func _hook_hatch() -> void:
+	var hatch: Variant = world.get("floor_hatch") if is_instance_valid(world) else null
+	if not is_instance_valid(hatch) or hatch == _hatch_hooked:
+		return
+	_hatch_hooked = hatch
+	if hatch.has_signal("opening") and not hatch.opening.is_connected(_on_hatch_opening):
+		hatch.opening.connect(_on_hatch_opening)
+
+func _on_hatch_opening() -> void:
+	if _hatch_opening_here or not mp.active():
+		return
+	if mp.is_host:
+		if "hatch_open" in GameState:
+			GameState.set("hatch_open", true)
+		_state_tick()
+	else:
+		mp._rx_hatch_open.rpc_id(1, mp._outgoing_world_seed())
+
+func on_hatch_open(sender: int) -> void:
+	if not mp.is_host or not mp.players.has(sender):
+		return
+	open_hatch_here()
+	if "hatch_open" in GameState:
+		GameState.set("hatch_open", true)
+	_state_tick()
+
+func open_hatch_here() -> void:
+	var hatch: Variant = world.get("floor_hatch") if is_instance_valid(world) else null
+	if not is_instance_valid(hatch) or not hatch.has_method("_open_lid"):
+		return
+	if bool(hatch.get("unlocked")) or bool(hatch.get("_turning")):
+		return
+	_hatch_opening_here = true
+	hatch.set("unlocked", true)
+	hatch._open_lid()
+	_hatch_opening_here = false
+	if "hatch_open" in GameState:
+		GameState.set("hatch_open", true)
+

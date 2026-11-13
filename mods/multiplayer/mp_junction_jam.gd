@@ -3,8 +3,11 @@ extends "res://scripts/build/junction_jam.gd"
 var _mp_signature := 0
 var _mp_since := -INF
 var _mp_handed := -1
+var mp_guest := false
 
 func _check(paths: Array, machine: Node, time: float) -> BeltPath:
+	if mp_guest:
+		return null
 	var physical := false
 	var fingerprint: Array = []
 	var handed := 0

@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 # Paint boards.
 #
@@ -50,7 +51,7 @@ func _key(b: Node3D) -> String:
 	return "%.4f,%.4f,%.4f|%.5f" % [p.x, p.y, p.z, wrapf(b.rotation.y, -PI, PI)]
 
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if mp == null or not mp.active() or multiplayer.multiplayer_peer == null:
 		return
 	_refresh += delta
@@ -151,3 +152,9 @@ func _board_at(key: String) -> Node:
 		if is_instance_valid(board) and _key(board) == key:
 			return board
 	return null
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("boards", Time.get_ticks_usec() - __t)

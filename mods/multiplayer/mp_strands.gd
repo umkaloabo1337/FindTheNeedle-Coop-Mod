@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 # Loose straw.
 #
@@ -124,7 +125,9 @@ func _new_sid() -> int:
 
 # ------------------------------------------------------------------ ticks
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
+	if __MPCost.is_off("straw"):
+		return
 	if live == null or not is_instance_valid(live):
 		return
 	# keeps following the fist even if the link hiccups
@@ -309,6 +312,8 @@ func on_add(sender: int, adds: Array) -> void:
 
 
 func on_move(sender: int, ids: PackedInt64Array, rows: PackedFloat32Array, sequence: int) -> void:
+	if __MPCost.is_off("straw"):
+		return
 	if sender <= 0 or sequence <= 0 or ids.size() > MOVE_BUDGET or rows.size() != ids.size() * 7:
 		return
 	_apply_moves(sender, ids, rows, sequence)
@@ -585,3 +590,9 @@ func _replace_live_script(script: Script) -> void:
 	for key in values:
 		if key in live:
 			live.set(key, values[key])
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("strands", Time.get_ticks_usec() - __t)

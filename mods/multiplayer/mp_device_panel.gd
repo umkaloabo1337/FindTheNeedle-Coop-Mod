@@ -1,4 +1,5 @@
 extends Control
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const LANGUAGES := ["en", "de", "es", "fr", "it", "cs", "pl", "ru", "tr", "ja", "ko", "zh", "pt", "uk", "ar", "fa", "zh_TW"]
 const WORDS := {
@@ -153,7 +154,7 @@ func _layout() -> void:
 	_panel.position = Vector2(view.x - width - 12.0, top)
 	_panel.size = Vector2(width, 0.0 if _collapsed else maxf(190.0, view.y - top - 150.0))
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not is_instance_valid(camera) or not camera.active:
 		_mode_changed(false)
 		return
@@ -297,3 +298,9 @@ func _completed(sequence: int, _result: Dictionary) -> void:
 			_pending.erase(id)
 	if visible:
 		_refresh()
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("device_panel", Time.get_ticks_usec() - __t)

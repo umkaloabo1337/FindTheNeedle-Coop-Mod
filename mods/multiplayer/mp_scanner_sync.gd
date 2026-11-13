@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const MAX_ROWS := 4096
 const MAX_BYTES := 512 * 1024
@@ -52,7 +53,7 @@ func _capture() -> Dictionary:
 			data[_key(node)] = node.banked.duplicate()
 	return data
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not _ready_for_state():
 		return
 	_clock += delta
@@ -286,3 +287,9 @@ func shutdown() -> void:
 	session_ended()
 	_running = false
 	set_process(false)
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("scanner_sync", Time.get_ticks_usec() - __t)

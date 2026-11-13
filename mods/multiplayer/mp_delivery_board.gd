@@ -9,5 +9,5 @@ func _refresh_note() -> void:
 		return
 	var german := TranslationServer.get_locale().begins_with("de")
 	var report := NeedleReport.counts(GameState.needle_taken, GameState.needle_type, NeedleTypes.count())
-	_write(_note_detail, NeedleReport.line(report, TranslationServer.get_locale()))
-	_write(_note_foot, ("%s · Nächste Ladung / Prestige" if german else "%s · Next load / Prestige") % InputSetup.hint("interact"))
+	_fit_line(_note_detail, NeedleReport.line(report, TranslationServer.get_locale()))
+	_fit_line(_note_foot, ("%s · Nächste Ladung / Prestige" if german else "%s · Next load / Prestige") % InputSetup.hint("interact"))

@@ -42,12 +42,15 @@ func to_dict() -> Dictionary:
 		data["mp_personal_tools"] = mp_personal_tools.duplicate(true)
 	return data
 
-func from_dict(data: Dictionary) -> void:
+func from_dict(data: Dictionary, held: Variant = null) -> void:
 	var balance: Variant = data.get("mp_balance", {})
 	mp_balance = balance.duplicate(true) if balance is Dictionary else {"invalid": true}
 	_mp_vacuum_read_id += 1
 	mp_income_rate = -1.0
-	super.from_dict(data)
+	if held == null:
+		super.from_dict(data)
+	else:
+		super.from_dict(data, held)
 	mp_prestige = preload("res://mods/multiplayer/mp_prestige_state.gd").normalize(data.get("mp_prestige", {}), run_seed)
 	mp_needle_committed = {}
 	var spent: Variant = data.get("mp_needle_committed", {})
@@ -117,10 +120,10 @@ func withdraw_needle(type: int, at: Vector3 = Vector3.ZERO) -> int:
 		return -1
 	return super.withdraw_needle(type, at)
 
-func lose_needle(index: int, type: int, paid: float, cause: NeedleLoss) -> void:
+func lose_needle(index: int, type: int, paid: float, cause: NeedleLoss, where: String = "") -> void:
 	var service := _mp_needle_service()
 	if service != null:
 		if not service.can_deposit(index):
 			return
 		mp_needle_committed[index] = "used"
-	super.lose_needle(index, type, paid, cause)
+	super.lose_needle(index, type, paid, cause, where)

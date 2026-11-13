@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 var mp: Node
 var world_sync: Node
@@ -61,7 +62,7 @@ func _request(action: String, args: Dictionary) -> int:
 	args["pile_seed"] = GameState.run_seed
 	var seq: int = world_sync.economy.request(action, args)
 	if seq > 0:
-		_pending[seq] = {"action": action, "index": int(args.get("index", -1)), "mode": str(args.get("mode", "hand")), "pile_seed": GameState.run_seed}
+		_pending[seq] = {"action": action, "index": int(args.get("index", -1)), "mode": str(args.get("mode", "hand")), "pile_seed": GameState.run_seed, "at": Time.get_ticks_msec()}
 	return seq
 
 func take(body: RigidBody3D, mode: String) -> bool:
@@ -78,15 +79,28 @@ func take(body: RigidBody3D, mode: String) -> bool:
 			_taking[index] = seq
 	return false
 
+# A request the host never answered (a lost packet, a session that changed
+# under it) would otherwise block every cabinet use for good.
+func _busy() -> bool:
+	var now := Time.get_ticks_msec()
+	for seq in _pending.keys():
+		if now - int(_pending[seq].get("at", now)) > 10000:
+			_taking.erase(int(_pending[seq].index))
+			_pending.erase(seq)
+	return not _pending.is_empty()
+
 func withdraw(cabinet: Node3D, type: int) -> bool:
-	if not _pending.is_empty():
+	if _busy():
 		return true
 	return _request("needle_withdraw", {"type": type, "at": cabinet.global_position}) > 0
 
 func deposit(index: int, cabinet: Node3D) -> bool:
-	if not _pending.is_empty():
+	if _busy():
 		return true
-	if not owns(index):
+	# in our hand but not on our books (the claim got lost on the way): the
+	# host decides, it only refuses a needle somebody else holds
+	var holder: int = world_sync._holder_of(index)
+	if not owns(index) and holder != 0:
 		return false
 	return _request("needle_deposit", {"index": index, "at": cabinet.global_position}) > 0
 
@@ -101,45 +115,81 @@ func _cabinet(at: Vector3) -> Node3D:
 	return null
 
 func execute(peer: int, action: String, args: Dictionary) -> Dictionary:
-	var failed := {"ok": false}
+	var result := _execute(peer, action, args)
+	if not bool(result.get("ok", false)):
+		# why a needle request was turned down; a guest's needle that would not
+		# go into the cabinet left nothing in either log
+		var why := str(result.get("why", "?"))
+		var text := "needle %s from %d refused: %s (index %s, holder %s)" % [action, peer, why, str(args.get("index", "-")), str(world_sync._holder_of(int(args.index))) if args.get("index") is int else "-"]
+		print("[needles] " + text)
+		if mp.trace != null:
+			mp.trace.note(text)
+		result.erase("why")
+	return result
+
+func _refused(why: String) -> Dictionary:
+	return {"ok": false, "why": why}
+
+func _execute(peer: int, action: String, args: Dictionary) -> Dictionary:
 	if not mp.is_host or not mp.players.has(peer) or world_sync._frozen or args.get("pile_seed") != GameState.run_seed:
-		return failed
+		return _refused("not now (frozen, unknown player or another pile)")
 	var index: int = args.index if args.get("index") is int else -1
 	if action == "needle_withdraw":
-		if not (args.get("at") is Vector3) or not (args.get("type") is int) or not _near(peer, args.at) or _cabinet(args.at) == null:
-			return failed
+		if not (args.get("at") is Vector3) or not (args.get("type") is int):
+			return _refused("bad request")
+		if not _near(peer, args.at):
+			return _refused("player not near the cabinet")
+		if _cabinet(args.at) == null:
+			return _refused("no cabinet there")
 		var cabinet := _cabinet(args.at)
 		applying = true
 		index = cabinet.withdraw(args.type)
 		applying = false
 		if index < 0:
-			return failed
+			return _refused("none of that type in the cabinet")
 		publish_catalog()
 		_claim(index, peer)
 		return {"ok": true, "index": index, "at": cabinet.slot_position(args.type), "mode": "hand"}
-	if not (args.get("index") is int) or not valid_index(index) or committed(index):
-		return failed
+	if not (args.get("index") is int) or not valid_index(index):
+		return _refused("no such needle")
+	if committed(index):
+		return _refused("already handed in")
 	var owner: int = world_sync._holder_of(index)
 	if action == "needle_take":
 		if str(args.get("mode", "")) not in ["hand", "vacuum"]:
-			return failed
+			return _refused("bad mode")
 		var body: Variant = world_sync._needle_bodies().get(index)
 		if owner != 0 and owner != peer:
-			return failed
+			return _refused("somebody else holds it")
 		if not is_instance_valid(body):
-			if not (args.get("at") is Vector3) or not _near(peer, args.at) or _bank_contains(index):
-				return failed
+			if not (args.get("at") is Vector3) or not _near(peer, args.at):
+				return _refused("player not near where the needle is")
+			if _bank_contains(index):
+				return _refused("banked in a scanner")
 			body = world_sync._live().reveal_needle(index, args.at)
-		if not is_instance_valid(body) or not _near(peer, body.global_position):
-			return failed
+		if not is_instance_valid(body):
+			return _refused("could not uncover it")
+		if not _near(peer, body.global_position):
+			return _refused("player not near the needle")
 		if owner == 0 and world_sync._live().has_method("is_held_by_a_tool") and world_sync._live().is_held_by_a_tool(body):
-			return failed
+			return _refused("held by a tool")
 		var at: Vector3 = body.global_position
 		_claim(index, peer)
 		return {"ok": true, "index": index, "at": at, "mode": args.mode}
 	if action == "needle_deposit":
-		if owner != peer or not (args.get("at") is Vector3) or not _near(peer, args.at) or _cabinet(args.at) == null:
-			return failed
+		# Nobody holding it here is fine: the guest has it in hand, and this
+		# side lost track of the claim (a resync, a drop that crossed it). Only
+		# somebody else's claim says no; it used to say no to every one of
+		# these, and the needle fell in front of the cabinet on the guest's
+		# screen while it lay in the pile on the host's.
+		if owner != peer and owner != 0:
+			return _refused("somebody else holds it")
+		if not (args.get("at") is Vector3):
+			return _refused("bad request")
+		if not _near(peer, args.at):
+			return _refused("player not near the cabinet")
+		if _cabinet(args.at) == null:
+			return _refused("no cabinet there")
 		applying = true
 		_cabinet(args.at).accept(index)
 		applying = false
@@ -148,13 +198,15 @@ func execute(peer: int, action: String, args: Dictionary) -> Dictionary:
 		world_sync._needle_out("gone", index, Vector3.ZERO, 0)
 		return {"ok": true, "index": index}
 	if action == "needle_release":
-		if owner != peer or not (args.get("at") is Vector3) or not _near(peer, args.at):
-			return failed
+		if owner != peer:
+			return _refused("not theirs")
+		if not (args.get("at") is Vector3) or not _near(peer, args.at):
+			return _refused("player not near")
 		world_sync._holder.erase(index)
 		world_sync._apply_needle("spawn", index, args.at, 0)
 		world_sync._needle_out("spawn", index, args.at, 0)
 		return {"ok": true, "index": index}
-	return failed
+	return _refused("unknown action")
 
 func _claim(index: int, peer: int) -> void:
 	world_sync._holder[index] = peer
@@ -225,7 +277,7 @@ func normalize_scanners() -> void:
 	if changed and is_instance_valid(world_sync.scanner_sync):
 		world_sync.scanner_sync.changed()
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not is_instance_valid(mp) or not mp.active() or world_sync._frozen:
 		return
 	_timer += delta
@@ -290,3 +342,9 @@ func _hook_cabinets() -> void:
 		_cabinet_scripts[cabinet.get_instance_id()] = {"node": weakref(cabinet), "script": script}
 		world_sync.economy._replace(cabinet, load(mp.base_dir + "/mp_needle_cabinet.gd"))
 		cabinet.set("mp_needles", self)
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("needle_sync", Time.get_ticks_usec() - __t)

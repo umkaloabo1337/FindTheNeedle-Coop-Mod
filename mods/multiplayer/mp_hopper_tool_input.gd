@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const Store = preload("res://mods/multiplayer/mp_hopper_state.gd")
 const MAX_RAW := 400
@@ -29,7 +30,7 @@ func shutdown() -> void:
 	session_ended()
 	if is_instance_valid(world_sync) and is_instance_valid(world_sync.economy) and world_sync.economy.completed.is_connected(_completed):
 		world_sync.economy.completed.disconnect(_completed)
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not is_instance_valid(world_sync) or not is_instance_valid(world_sync.economy):
 		return
 	var economy: Node = world_sync.economy
@@ -585,3 +586,9 @@ func _failure(reason: String) -> Dictionary:
 
 static func _tr(de: String, en: String) -> String:
 	return preload("res://mods/multiplayer/mp_i18n.gd").phrase(de, en)
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("hopper_tool_input", Time.get_ticks_usec() - __t)

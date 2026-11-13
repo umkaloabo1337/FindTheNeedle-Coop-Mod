@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const TOOL_IDS := ["spade", "pitchfork", "broom", "sand_shovel", "metal_detector", "yard_vac", "lighter"]
 var mp: Node
@@ -139,7 +140,7 @@ func _send_pending() -> void:
 		var change: Dictionary = _pending[seq]
 		mp._rx_tools_request.rpc_id(1, epoch, int(seq), change.added, change.removed, mp._outgoing_world_seed())
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if _vacuum_enabled and not is_instance_valid(_vacuum) and is_instance_valid(player):
 		_install_vacuum()
 	if mp == null or not mp.active() or mp.is_host or _pending.is_empty():
@@ -302,3 +303,9 @@ func owns_poured_heap(heap: Node) -> bool:
 		return true
 	var props: Node = mp.world_sync.props_sync
 	return is_instance_valid(props) and props._mine(int(heap.get_meta("mp_id")))
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("tools", Time.get_ticks_usec() - __t)

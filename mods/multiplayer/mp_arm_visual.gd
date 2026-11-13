@@ -88,7 +88,7 @@ static func pieces(state: Dictionary) -> Array:
 		result.append(part)
 	return result
 
-func apply(key: String, arm: RoboticArm, state: Dictionary) -> void:
+func apply(key: String, arm: RoboticArm, state: Dictionary, walk: float = 0.125) -> void:
 	if not valid(state):
 		return
 	var current: Dictionary = _received.get(key, {})
@@ -111,6 +111,8 @@ func apply(key: String, arm: RoboticArm, state: Dictionary) -> void:
 		current.from = current.draw.global_transform if is_instance_valid(current.draw) else _pose(state.p)
 		current.to = _pose(state.p)
 		current.elapsed = 0.0
+		# the hay in the claw walks over the same time as the arm itself
+		current.walk = clampf(walk, 0.05, 0.5)
 	if state.n == 0 or not state.has("d"):
 		return
 	for i in state.d.size():
@@ -143,7 +145,7 @@ func step(delta: float) -> void:
 	for current in _received.values():
 		if not is_instance_valid(current.draw):
 			continue
-		current.elapsed = minf(1.0, current.elapsed + delta / 0.1)
+		current.elapsed = minf(1.0, current.elapsed + delta / float(current.get("walk", 0.125)))
 		current.draw.global_transform = current.from.interpolate_with(current.to, current.elapsed)
 
 func prune(nodes: Dictionary) -> void:

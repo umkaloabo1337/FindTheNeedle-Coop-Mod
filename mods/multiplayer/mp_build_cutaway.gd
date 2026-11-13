@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const STAND_CUT_HEIGHT := 2.25
 const ROOF_PARTS := ["Sheets", "HatchEnds", "Rafters", "Purlins"]
@@ -75,7 +76,7 @@ func finish() -> void:
 func _exit_tree() -> void:
 	finish()
 
-func _process(_delta: float) -> void:
+func _mp_timed_process(_delta: float) -> void:
 	if not active:
 		return
 	if not is_instance_valid(_world) or not is_instance_valid(_camera):
@@ -226,3 +227,9 @@ static func _script_class(node: Node, name: String) -> bool:
 			return true
 		script = script.get_base_script()
 	return false
+
+
+func _process(_delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(_delta)
+	__MPCost.add("build_cutaway", Time.get_ticks_usec() - __t)

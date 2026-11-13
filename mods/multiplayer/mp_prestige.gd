@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const State = preload("res://mods/multiplayer/mp_prestige_state.gd")
 const Inventory = preload("res://mods/multiplayer/mp_prestige_inventory.gd")
@@ -226,7 +227,7 @@ func on_cancel(token: String, seed: int) -> void:
 	_remote_token = ""
 	_thaw()
 
-func _process(_delta: float) -> void:
+func _mp_timed_process(_delta: float) -> void:
 	_collection_clock += _delta
 	if _collection_clock >= 0.25:
 		_collection_clock = 0.0
@@ -427,3 +428,9 @@ func peer_gone(peer: int) -> void:
 			_cancel_reason = message
 		else:
 			_abort(message)
+
+
+func _process(_delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(_delta)
+	__MPCost.add("prestige", Time.get_ticks_usec() - __t)

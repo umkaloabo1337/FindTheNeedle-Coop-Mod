@@ -1,10 +1,13 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const ArmState = preload("res://mods/multiplayer/mp_arm_state.gd")
 const ArmVisual = preload("res://mods/multiplayer/mp_arm_visual.gd")
 
 var _shader_fields := preload("res://mods/multiplayer/mp_shader_fields.gd").new()
 var _arm_visual := ArmVisual.new()
+var _alert := preload("res://mods/multiplayer/mp_alert_sync.gd").new()
+var _crane_rig := preload("res://mods/multiplayer/mp_crane_rig.gd").new()
 
 const DroneState = preload("res://mods/multiplayer/mp_drone_state.gd")
 const MachinePacket = preload("res://mods/multiplayer/mp_machine_packet.gd")
@@ -26,17 +29,29 @@ const FrameSlots = preload("res://mods/multiplayer/mp_frame_slots.gd")
 #
 # Only what changed is sent, and only for machines somebody is standing near.
 
-const TICK := 0.125
+const TICK := 0.2  # was 0.125: a big yard sent ~570 pose packets a second; guests walk between poses over the measured gap
 const FIELD_TICK := 0.5
 const EDIT_TICK := 0.2    # how often a guest looks for a setting it changed
 const FULL_TICK := 2.0    # how often every part goes out again, packets get lost
-const RANGE := 32.0        # metres from a player before a machine is worth sending
+const RANGE := 24.0        # metres from a player before a machine is worth sending (32 sent twice as many in a big yard)
 const MOVE_EPS := 0.0015
 const ANG_EPS := 0.004
 # a machine model carries a lot of nodes and the smoke and firebox sit well
 # down the list, so do not cut the walk short
 const MAX_PARTS := 120
 const SMOOTH := 22.0
+# Machines whose panel reads state that lives in their saved data (contents,
+# progress, output). A guest's copy is frozen, so it takes the host's.
+static func _saved_kind(n: Variant) -> bool:
+	return n is Assembler or n is BriquettePress or n is HayCompressor or n is HayPelletizer 		or n is HayPulper or n is PaperMachine or (n is HayWrapper and not n is Depot)
+
+const SAVED_SKIP := ["type", "position", "yaw", "paid", "gift", "off", "recipe"]
+const MIN_WALK := 0.06
+const MAX_WALK := 0.5
+# Past this far from the camera a machine's parts jump to their pose instead
+# of being walked there frame by frame: nobody sees the difference, and the
+# walking was most of a guest's frame in a big yard.
+const EASE_RANGE := 25.0
 const MAX_RAW := 4 << 20
 
 # What each kind of machine keeps that is worth copying: the numbers other
@@ -44,29 +59,34 @@ const MAX_RAW := 4 << 20
 # change. Read from the machine, written back through its setter when it has
 # one.
 const FIELDS := {
-	"generators": ["fuel", "switched_off", "made_kw"],
-	"silos": ["switched_off", "discharge_rate", "resume_rate", "stored", "queued"],
-	"splitters": ["forced_side", "priority_side", "next_side", "filters", "entry", "manual", "closed_lane", "fed", "stem_wait", "mp_t_revision"],
+	"generators": ["fuel", "switched_off", "made_kw", "water", "mp_alert"],
+	"silos": ["switched_off", "discharge_rate", "resume_rate", "stored", "queued", "mp_alert"],
+	"splitters": ["forced_side", "priority_side", "next_side", "filters", "entry", "manual", "closed_lane", "fed", "stem_wait", "mp_t_revision", "mp_alert"],
 	"joiners": ["out_lane", "manual", "next_side", "mp_t_revision"],
-	"tube_launchers": ["switched_off", "aim", "power", "stored"],
-	"piston_rakes": ["switched_off", "throw_distance"],
-	"hay_drones": ["switched_off", "mode", "takes", "mp_zone", "mp_drop", "mp_drone_status"],
-	"pelletizers": ["switched_off", "throw_distance", "head_yaw", "stored"],
+	"tube_launchers": ["switched_off", "aim", "power", "stored", "mp_alert"],
+	"piston_rakes": ["switched_off", "throw_distance", "mp_alert"],
+	"hay_drones": ["switched_off", "mode", "takes", "mp_zone", "mp_drop", "mp_drone_status", "mp_alert"],
+	"pelletizers": ["switched_off", "throw_distance", "head_yaw", "stored", "mp_scrap_jam", "iron_points", "copper_points", "mp_saved", "mp_alert"],
 	"robotic_arms": ["switched_off", "accept_mask", "tier_index", "paid_cost", "legacy_refit", "pick_order", "mp_links", "mp_arm_status"],
-	"scanners": ["switched_off", "tier_index", "stored"],
-	"compressors": ["switched_off", "stored"],
-	"pulpers": ["switched_off", "stored", "mp_taps"],
-	"papers": ["switched_off", "queued"],
-	"briquette_presses": ["switched_off", "stored_strands", "stored_bricks"],
-	"wrappers": ["switched_off", "queued"],
-	"boreholes": ["switched_off"],
+	"scanners": ["switched_off", "tier_index", "stored", "mp_alert"],
+	"compressors": ["switched_off", "stored", "mp_scrap_jam", "water", "mp_saved", "mp_alert"],
+	"pulpers": ["switched_off", "stored", "mp_taps", "mp_scrap_jam", "mp_saved", "mp_alert"],
+	"papers": ["switched_off", "queued", "recipe", "paint", "water", "mp_saved", "mp_alert"],
+	"briquette_presses": ["switched_off", "stored_strands", "stored_bricks", "mp_scrap_jam", "recipe", "mp_saved", "mp_alert"],
+	"wrappers": ["switched_off", "queued", "emptying", "emptying_kinds", "mp_saved", "mp_alert"],
+	"boreholes": ["switched_off", "mp_alert"],
 	"dump_hatches": ["stored"],
 	"needle_radars": ["cooldown"],
 	"work_lamps": ["brightness", "_off"],
+	"hay_excavators": ["switched_off", "throw_distance", "mp_tube", "mp_alert"],
+	# the yard fan (EA) lives in the BuildManager's "extras" list
+	"extras": ["switched_off", "turn", "tilt", "height", "strength"],
+	"skyline_cranes": ["switched_off", "mp_crane_zone", "mp_crane_rig", "mp_alert"],
+	"pipe_pumps": ["switched_off", "mp_alert"],
 }
 
 # Machines that keep running on clients but whose settings still have to match.
-const SETTINGS_ONLY := ["work_lamps"]
+const SETTINGS_ONLY := ["work_lamps", "extras"]
 
 # The areas a machine watches for something to eat. Named rather than walked,
 # because a machine's other areas are the scanner's beam and the stairs' climb
@@ -87,16 +107,21 @@ const SETTINGS := {
 	"tube_launchers": ["switched_off", "aim", "power"],
 	"piston_rakes": ["switched_off", "throw_distance"],
 	"hay_drones": ["switched_off", "mode", "takes", "mp_zone", "mp_drop"],
-	"pelletizers": ["switched_off", "throw_distance", "head_yaw"],
+	"pelletizers": ["switched_off", "throw_distance", "head_yaw", "mp_scrap_jam"],
 	"robotic_arms": ["switched_off", "accept_mask", "pick_order", "mp_links"],
 	"scanners": ["switched_off", "tier_index"],
-	"compressors": ["switched_off"],
-	"pulpers": ["switched_off"],
-	"papers": ["switched_off"],
-	"briquette_presses": ["switched_off"],
-	"wrappers": ["switched_off"],
+	"compressors": ["switched_off", "mp_scrap_jam"],
+	"pulpers": ["switched_off", "mp_scrap_jam"],
+	"papers": ["switched_off", "recipe", "paint"],
+	"briquette_presses": ["switched_off", "mp_scrap_jam", "recipe"],
+	"wrappers": ["switched_off", "emptying", "emptying_kinds"],
 	"boreholes": ["switched_off"],
 	"work_lamps": ["brightness", "_off"],
+	"hay_excavators": ["switched_off", "throw_distance", "mp_tube"],
+	# the yard fan (EA) lives in the BuildManager's "extras" list
+	"extras": ["switched_off", "turn", "tilt", "height", "strength"],
+	"skyline_cranes": ["switched_off", "mp_crane_zone"],
+	"pipe_pumps": ["switched_off"],
 }
 
 const FIELD_GROUPS := [["entry", "out_lane", "closed_lane", "forced_side", "priority_side", "next_side", "manual", "stem_wait", "mp_t_revision"],
@@ -121,6 +146,16 @@ var _fx_sent := {}  # key -> {"part:slot": last value sent}
 var _flags := {}    # key -> PackedByteArray last broadcast
 var _vals := {}     # key -> Dictionary of fields last broadcast
 var _goal := {}     # key -> {part index: Transform3D}
+var _pose_at := {}  # guest: key -> msec its last poses came
+var _pose_gap := {} # guest: key -> how far apart its poses come, seconds
+var _driving := {}  # guest: rake instance id -> weakref, driving along with the host
+var _transport_memo := {}  # part instance id -> is a transport part (cleared on rescan)
+# Host: a bale wrapper that sits still while bales wait is written to the
+# trace with its state, so a "wrapper lets bales through" report says why.
+const STUCK_TICK := 10.0
+const STUCK_AFTER := 3  # ticks with nothing changing
+var _stuck_t := 0.0
+var _stuck := {}  # key -> [state seen, ticks unchanged]
 var _nodes := {}    # key -> machine node
 var _group := {}    # key -> which build array it came from
 var _scan_t := 0.0
@@ -138,11 +173,11 @@ var _processor_hooks := {}
 var _junction_hooks := {}
 var _processors_enabled := false
 var _theirs := {}   # guest: key -> the settings as the host last stated them
-var _alias := {}    # a key from the host -> our key for the same machine
 var _rescan_at := -100000  # msec, last rescan forced by a key we did not know
 # a key naming a machine we do not have (yet): skip it until then instead of
 # walking every machine again for every packet that mentions it
 const UNKNOWN_KEY_WAIT := 1000
+var _unknown_noted := {}
 const KEY_SLACK := 0.25   # metres: the same machine, placed on both sides
 const BIG_PACKET := 1000  # compressed bytes; past this a packet goes reliable
 
@@ -160,6 +195,8 @@ func start(mp_node: Node, world_node: Node) -> void:
 
 func shutdown() -> void:
 	_arm_visual.clear()
+	_crane_rig.clear()
+	_alert.clear(_replace_processor_script)
 	_processors_enabled = false
 	set_process(false)
 	if is_instance_valid(builds) and builds.changed.is_connected(_protect_processors):
@@ -208,6 +245,12 @@ func shutdown() -> void:
 # Every machine worth sending, under a key both sides work out the same way:
 # the array it lives in and where it stands.
 func _rescan() -> void:
+	var __t0 := Time.get_ticks_usec()
+	_rescan_inner()
+	__MPCost.add("machines.rescan", Time.get_ticks_usec() - __t0)
+
+
+func _rescan_inner() -> void:
 	if not _processors_enabled or not is_instance_valid(mp) or not is_instance_valid(builds):
 		return
 	var ws: Node = mp.world_sync
@@ -223,6 +266,7 @@ func _rescan() -> void:
 		if Time.get_ticks_msec() - int(_pending_settings[key].time) > 10000:
 			_pending_settings.erase(key)
 	var groups: Array = ws.get_script().get_script_constant_map().get("CLIENT_FROZEN", [])
+	_transport_memo.clear()
 	var previous_nodes := _nodes.duplicate()
 	_nodes.clear()
 	# walk the models again: the game adds and drops nodes as it runs
@@ -236,9 +280,12 @@ func _rescan() -> void:
 		for n in arr:
 			if is_instance_valid(n) and n is Node3D and n.is_inside_tree() and not n.is_queued_for_deletion():
 				_protect_processor(n)
+				if not mp.is_host and FIELDS.get(String(group), []).has("mp_alert") and n.is_node_ready() \
+						and n.get("placement_preview") != true:
+					_alert.wrap(n, _replace_processor_script)
 				var key := _key(String(group), n)
 				if previous_nodes.get(key) != n:
-					for cache in [_parts, _ids, _slot, _part_shapes, _sent, _flags, _vals, _goal, _fx_sent, _theirs]:
+					for cache in [_parts, _ids, _slot, _part_shapes, _sent, _flags, _vals, _goal, _fx_sent, _theirs, _pose_at, _pose_gap]:
 						cache.erase(key)
 					_queued_settings.erase(key)
 					for pending_key in _pending_settings.keys():
@@ -246,45 +293,83 @@ func _rescan() -> void:
 							_pending_settings.erase(pending_key)
 				_nodes[key] = n
 				_group[key] = String(group)
+	# a machine gone since: its walk is out of date at once
 	for key in _parts.keys():
-		var node: Variant = _nodes.get(key)
-		var current: Array = []
-		if is_instance_valid(node):
-			_walk(node, current)
-		var same: bool = is_instance_valid(node) and _parts[key] == current \
-			and _part_shapes.get(key, []) == DiagnosticState.machine_shape(node, current)
-		if not same:
-			_parts.erase(key)
-			_ids.erase(key)
-			_slot.erase(key)
-			_part_shapes.erase(key)
+		if not is_instance_valid(_nodes.get(key)):
+			_forget_parts(key)
 	# forget machines that are gone (this used to run over _parts after it was
 	# cleared, so it never did anything and every demolished machine's state
 	# stayed behind for good)
-	for d in [_sent, _flags, _vals, _goal, _fx_sent, _theirs]:
+	for d in [_sent, _flags, _vals, _goal, _fx_sent, _theirs, _pose_at, _pose_gap]:
 		for key in (d as Dictionary).keys():
 			if not _nodes.has(key):
 				(d as Dictionary).erase(key)
-	for key in _alias.keys():
-		if not _nodes.has(_alias[key]):
-			_alias.erase(key)
-
 	_arm_visual.prune(_nodes)
+	_alert.prune()
 
 
-# Our key for a machine the host named. Both sides place a machine from the
-# same save data, but its position can come out a hair different, and the key
-# is built from it; so an exact miss falls back to the nearest machine of the
-# same kind. A key that matches nothing waits a second before the next rescan.
+func _forget_parts(key: String) -> void:
+	_parts.erase(key)
+	_ids.erase(key)
+	_slot.erase(key)
+	_part_shapes.erase(key)
+
+
+# Whether each machine still has the parts we walked: the game adds and drops
+# nodes of its own as it runs. This used to walk every machine again on every
+# rescan, 35-40 ms at once every two seconds in a big yard (a stutter you
+# could feel); now a few machines a frame, within a small budget.
+var _part_checks: Array = []
+var _part_check_at := 0  # msec, when the last round started
+const PART_CHECK_USEC := 1000
+const PART_CHECK_EVERY := 2000  # msec between rounds, as the rescan had it
+
+func _check_parts_step() -> void:
+	if _part_checks.is_empty():
+		if _parts.is_empty() or Time.get_ticks_msec() - _part_check_at < PART_CHECK_EVERY:
+			return
+		_part_check_at = Time.get_ticks_msec()
+		_part_checks = _parts.keys()
+	var until := Time.get_ticks_usec() + PART_CHECK_USEC
+	while not _part_checks.is_empty() and Time.get_ticks_usec() < until:
+		var key: String = _part_checks.pop_back()
+		if not _parts.has(key):
+			continue
+		var node: Variant = _nodes.get(key)
+		if not is_instance_valid(node):
+			_forget_parts(key)
+			continue
+		var current: Array = []
+		_walk(node, current)
+		if _parts[key] != current or _part_shapes.get(key, []) != DiagnosticState.machine_shape(node, current):
+			_forget_parts(key)
+			_fx.erase(key)
+
+
+# Our key for a machine the host named: both sides place it from the same save
+# data and build the key from where it stands, so an exact match is expected
+# (not one miss in test runs with the host's big yard). A key that matches nothing
+# waits a second before the next rescan, and is written down once.
+# A field that reads back different from what the host sent: written down once
+# per machine kind and field, so a sync warning says what it was about.
+var _field_miss_noted := {}
+func _note_field_miss(key: String, field: String, want: Variant, have: Variant) -> void:
+	var at := key.get_slice("|", 0) + "|" + field
+	if _field_miss_noted.has(at) or mp == null or mp.trace == null:
+		return
+	_field_miss_noted[at] = true
+	mp.trace.note("machine field differs after applying %s %s: host %s, here %s" % [key, field, str(want).left(300), str(have).left(300)])
+
+
 func _local_key(key: String) -> String:
 	if _nodes.has(key):
 		return key
-	var known: String = _alias.get(key, "")
-	if known != "" and _nodes.has(known):
-		return known
 	var now := Time.get_ticks_msec()
 	if now - _rescan_at >= UNKNOWN_KEY_WAIT:
 		_rescan_at = now
+		if mp != null and mp.trace != null and not _unknown_noted.has(key):
+			_unknown_noted[key] = true
+			mp.trace.note("unknown machine key %s, rescanning" % key)
 		_rescan()
 		if _nodes.has(key):
 			return key
@@ -352,7 +437,7 @@ func _walk(n: Node, out: Array, checked: Variant = null) -> void:
 
 # ------------------------------------------------------------------ ticks
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not _processors_enabled:
 		return
 	_ease(delta)
@@ -360,7 +445,9 @@ func _process(delta: float) -> void:
 		return
 	if multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
 		return
+	_check_parts_step()
 	if not mp.is_host:
+		_step_driving(delta)
 		# a guest works the panels on its own copy, which the machine itself
 		# ignores, so watch for what the player changed and hand it to the host
 		_scan_t += delta
@@ -399,6 +486,10 @@ func _process(delta: float) -> void:
 	if _field_t >= FIELD_TICK:
 		_field_t = 0.0
 		_send_fields()
+	_stuck_t += delta
+	if _stuck_t >= STUCK_TICK:
+		_stuck_t = 0.0
+		_watch_wrappers()
 	_mouth_t += delta
 	if _mouth_t >= MOUTH_TICK:
 		_mouth_t = 0.0
@@ -501,8 +592,13 @@ func _send_poses(half: int = -1) -> void:
 			continue
 		var full := refresh.has(key)
 		if not full and _full_due_at.has(key) and now_msec >= int(_full_due_at[key]):
+			# the periodic resend of everything: it repeats every FULL_TICK,
+			# so it may be lost like any move. Only a machine a player just
+			# came near (refresh) has to arrive. Marking these reliable made
+			# nearly every pose packet reliable (480 a second in a big yard),
+			# and Steam queued them up until even picking something up took
+			# seconds.
 			full = true
-			refresh[key] = true
 			_full_due_at[key] = now_msec + int(FULL_TICK * 1000.0)
 		var parts := _parts_of(key)
 		if parts.is_empty():
@@ -522,7 +618,7 @@ func _send_poses(half: int = -1) -> void:
 		for i in parts.size():
 			var part: Variant = parts[i]
 			if not is_instance_valid(part) or not (part is Node3D) or not part.is_inside_tree() \
-					or part.is_queued_for_deletion() or not n.is_ancestor_of(part) or _is_transport_part(part, transport_checks):
+					or part.is_queued_for_deletion() or not n.is_ancestor_of(part) or _transport_cached(part, transport_checks):
 				continue
 			var node := part as Node3D
 			flags[i] = _flags_of(node)
@@ -583,18 +679,25 @@ func _send_poses(half: int = -1) -> void:
 		keys.sort()
 		var signature := "\n".join(keys)
 		if not groups.has(signature):
-			var selected := {}
-			var reliable := _full
+			# what has to arrive goes on its own, so it does not make the
+			# moves of every other machine in the packet reliable too
+			var moves := {}
+			var musts := {}
 			for key in keys:
-				selected[key] = batch[key]
-				reliable = reliable or refresh.has(key)
-			groups[signature] = {"batch": selected, "peers": [], "reliable": reliable}
+				if refresh.has(key):
+					musts[key] = batch[key]
+				else:
+					moves[key] = batch[key]
+			groups[signature] = {"moves": moves, "musts": musts, "peers": []}
 		groups[signature].peers.append(peer_id)
 	for group in groups.values():
-		if mp.over_steam:
-			_send_small(group.batch, group.peers, group.reliable)
-		else:
-			_send_one(group.batch, group.peers, group.reliable)
+		for part in [[group.moves, false], [group.musts, true]]:
+			if part[0].is_empty():
+				continue
+			if mp.over_steam:
+				_send_small(part[0], group.peers, part[1])
+			else:
+				_send_one(part[0], group.peers, part[1])
 
 
 # Over Steam, in small pieces. Every guest crash over Steam came right after a
@@ -602,9 +705,9 @@ func _send_poses(half: int = -1) -> void:
 # connection it has never happened, so over Steam no message gets that big:
 # each machine's parts, flags and effects are split into pieces a guest can
 # apply one by one, and packed into messages of about a kilobyte.
-const PIECE_PARTS := 10
+const PIECE_PARTS := 40  # parts per piece: 10 made a big arm or machine several messages a tick
 const PIECE_PAIRS := 40
-const SMALL_PACKET := 900
+const SMALL_PACKET := 1800  # compressed bytes a pose message aims at; 900 made hundreds of tiny messages a second
 
 func _send_small(batch: Dictionary, peers: Array, force_reliable: bool = false) -> void:
 	var pieces: Array = []  # [key, sub entry]
@@ -630,16 +733,23 @@ func _send_small(batch: Dictionary, peers: Array, force_reliable: bool = false) 
 				pieces.append([key, {"i": ids.slice(a, a + PIECE_PARTS),
 					"t": rows.slice(a * 12, (a + PIECE_PARTS) * 12)}])
 	var out := {}
+	var size := 0
 	for p in pieces:
 		var key: String = p[0]
 		if out.has(key):
 			_send_one(out, peers, force_reliable)
 			out = {}
+			size = 0
 		out[key] = p[1]
-		if var_to_bytes(out).size() > SMALL_PACKET * 3:
+		# the size so far, added up piece by piece: serialising the whole
+		# message again after every piece cost the host more the bigger the
+		# yard got
+		size += var_to_bytes(p[1]).size() + key.length() + 16
+		if size > SMALL_PACKET * 3:
 			# ~3:1 compression on these; keep what is sent near a kilobyte
 			_send_one(out, peers, force_reliable)
 			out = {}
+			size = 0
 	if not out.is_empty():
 		_send_one(out, peers, force_reliable)
 
@@ -648,7 +758,7 @@ func _send_one(batch: Dictionary, peers: Array, force_reliable: bool = false) ->
 	var raw := var_to_bytes(batch)
 	var packed := raw.compress(FileAccess.COMPRESSION_ZSTD)
 	# the periodic full refresh has to arrive; the moves in between may drop
-	var reliable: bool = _full or force_reliable or _has_arm_geometry(batch) or (not mp.over_steam and packed.size() > BIG_PACKET)
+	var reliable: bool = force_reliable or _has_arm_geometry(batch) or (not mp.over_steam and packed.size() > BIG_PACKET)
 	var connected := _connected_peers()
 	for peer_id in peers:
 		if not connected.has(peer_id):
@@ -716,7 +826,9 @@ func _send_fields() -> void:
 
 # ------------------------------------------------------------------ from the net
 
-func on_poses(packed: PackedByteArray, raw_size: int) -> void:
+func _mp_timed_on_poses(packed: PackedByteArray, raw_size: int) -> void:
+	if __MPCost.is_off("poses"):
+		return
 	if raw_size <= 0 or raw_size > MAX_RAW:
 		_observe_packet(true)
 		return
@@ -743,7 +855,7 @@ func on_poses(packed: PackedByteArray, raw_size: int) -> void:
 		var slot := _slot_of(key)
 		var entry: Dictionary = batch[host_key]
 		if entry.has("a") and _nodes.get(key) is RoboticArm:
-			_arm_visual.apply(key, _nodes[key], entry.a)
+			_arm_visual.apply(key, _nodes[key], entry.a, float(_pose_gap.get(key, TICK)))
 		if entry.has("f"):
 			var flags: PackedInt32Array = entry["f"]
 			var k := 0
@@ -768,7 +880,20 @@ func on_poses(packed: PackedByteArray, raw_size: int) -> void:
 			continue
 		var moved: PackedInt32Array = entry["i"]
 		var rows: PackedFloat32Array = entry["t"]
+		# how long to walk to this pose: the time the poses actually take to
+		# come, not the tick they are meant to come at. With a fixed tick a
+		# late packet left an arm standing and the next one made it jump.
+		var now_ms := Time.get_ticks_msec()
+		if _pose_at.has(key):
+			# a machine standing still sends nothing; that pause is no gap
+			var raw_gap := float(now_ms - int(_pose_at[key])) / 1000.0
+			if raw_gap <= MAX_WALK:
+				_pose_gap[key] = lerpf(float(_pose_gap.get(key, TICK)), clampf(raw_gap, MIN_WALK, MAX_WALK), 0.3)
+		_pose_at[key] = now_ms
 		var want: Dictionary = _goal.get(key, {})
+		var cam := get_viewport().get_camera_3d()
+		var machine: Variant = _nodes.get(key)
+		var walk_it := cam == null or not (machine is Node3D) 			or (machine as Node3D).global_position.distance_squared_to(cam.global_position) <= EASE_RANGE * EASE_RANGE
 		for j in moved.size():
 			var r := j * 12
 			if r + 11 >= rows.size():
@@ -791,6 +916,10 @@ func on_poses(packed: PackedByteArray, raw_size: int) -> void:
 				want.erase(part_id)
 				continue
 			if not _live_part(key, part):
+				want.erase(part_id)
+				continue
+			if not walk_it:
+				part.transform = to
 				want.erase(part_id)
 				continue
 			var current: Variant = want.get(part_id)
@@ -817,7 +946,7 @@ func _set_flags(n: Node3D, f: int) -> void:
 		(n as CPUParticles3D).emitting = running
 
 
-func on_fields(batch: Dictionary) -> void:
+func _mp_timed_on_fields(batch: Dictionary) -> void:
 	if not mp.is_host:
 		_send_edits()
 	var diagnostic_errors := 0
@@ -856,7 +985,9 @@ func on_fields(batch: Dictionary) -> void:
 				_pending_settings.erase(pending_key)
 			_apply_field(n as Node, String(f), diff[f])
 			known[String(f)] = _copy_value(diff[f])
-			checked[String(f)] = diff[f]
+			# a saved state read back need not match key for key
+			if f != "mp_saved":
+				checked[String(f)] = diff[f]
 		_theirs[key] = known
 		if _junction_state(n) != junction_before:
 			junctions.append(n)
@@ -864,6 +995,7 @@ func on_fields(batch: Dictionary) -> void:
 			var matches: bool = _tap_state_matches(n, checked[f]) if f == "mp_taps" else _read_field(n, f) == checked[f]
 			if not matches:
 				diagnostic_errors += 1
+				_note_field_miss(key, String(f), checked[f], _read_field(n, f))
 	_rewire_junctions(junctions)
 	if is_instance_valid(mp.world_sync) and "diagnostics" in mp.world_sync and is_instance_valid(mp.world_sync.diagnostics):
 		mp.world_sync.diagnostics.observe("machines", diagnostic_errors > 0, diagnostic_errors)
@@ -926,6 +1058,8 @@ func _send_edits() -> void:
 				continue
 			var v: Variant = _read_field(n, f)
 			if v == null or v == known[f]:
+				continue
+			if f == "mp_scrap_jam" and not _guest_cleared_jam(v, known[f]):
 				continue
 			diff[f] = _copy_value(v)
 		if not diff.is_empty():
@@ -1226,9 +1360,64 @@ func _read_field(n: Node, field: String) -> Variant:
 		"mp_links": return n.links_to_save()
 		"mp_taps": return _tap_state(n)
 		"mp_zone": return [n.zone_at, n.zone_r]
+		"mp_crane_zone": return [n.zone_at, n.zone_radius] if "zone_radius" in n else null
+		"mp_alert": return _alert.read(n) if mp.is_host else _alert.shown(n)
+		"mp_crane_rig":
+			if not (n is SkylineCrane):
+				return null
+			return _crane_rig.read(n) if mp.is_host else _crane_rig.goal_of(_key("skyline_cranes", n))
+		"mp_saved":
+			# EA assemblers (and the kiln and reactor built on them) keep their
+			# slots, progress and output in state the panel reads; a guest's
+			# copy is frozen, so it shows the host's saved state instead
+			if not _saved_kind(n) or not n.has_method("to_dict"):
+				return null
+			var state: Dictionary = n.to_dict()
+			for k in SAVED_SKIP:
+				state.erase(k)
+			return state
+		"mp_tube":
+			if not (n is HayExcavator):
+				return null
+			var saved: Dictionary = n.to_dict()
+			return [saved.get("tube"), saved.get("aimed")]
 		"mp_drop": return [n.drop_at, n.drop_kind]
 		"_off": return n.get("_off")
+		"mp_scrap_jam":
+			var jam: Variant = n.get("scrap_jam")
+			if not (jam is Object) or not jam.has_method("to_dict"):
+				return null
+			var state: Dictionary = jam.to_dict()
+			# the decay ticks every frame; whole seconds are plenty and keep
+			# the field quiet while nothing really changes
+			if state.get("decay") is float:
+				state["decay"] = snappedf(state["decay"], 1.0)
+			return state
 	return n.get(field)
+
+
+# The kinds a depot empties, kept either as a list or as {kind: on}.
+static func _kind_set(v: Variant) -> Dictionary:
+	var out := {}
+	if v is Dictionary:
+		for id in v:
+			if v[id]:
+				out[id] = true
+	elif v is Array or v is PackedInt32Array or v is PackedStringArray:
+		for id in v:
+			out[id] = true
+	return out
+
+
+# Metal stuck in a machine (EA v14): {meter, jammed, piece, decay}.
+static func _valid_jam(v: Variant) -> bool:
+	return v is Dictionary and v.get("jammed") is bool and v.get("meter") is int 		and v.get("piece") is String and String(v.get("piece")).length() <= 64 		and (v.get("decay") is float or v.get("decay") is int) and is_finite(float(v.get("decay")))
+
+
+# A guest pulled the metal out: their copy is clear while the host still said
+# jammed. Anything else about the jam is the host's to count.
+static func _guest_cleared_jam(local: Variant, known: Variant) -> bool:
+	return _valid_jam(local) and _valid_jam(known) and not bool(local.jammed) and bool(known.jammed)
 
 
 func _apply_field(n: Node, f: String, v: Variant) -> void:
@@ -1239,6 +1428,66 @@ func _apply_field(n: Node, f: String, v: Variant) -> void:
 
 
 func _apply_field_value(n: Node, f: String, v: Variant) -> void:
+	if f == "mp_scrap_jam":
+		var jam: Variant = n.get("scrap_jam")
+		if not _valid_jam(v) or not (jam is Object) or not jam.has_method("from_dict"):
+			return
+		if mp.is_host:
+			# only ever a clear, and only while it is still jammed here
+			if bool(v.jammed) or not bool(jam.get("jammed")):
+				return
+		jam.from_dict(v)
+		if not mp.is_host:
+			# from_dict() settles the meter at once: a host's fresh 2 with its
+			# decay just reset came out as 1 here, and the panel and the sync
+			# check both saw a machine that differed (45 sync warnings in an
+			# evening, every one of them this). Take the host's numbers as sent.
+			if v.get("meter") is int or v.get("meter") is float:
+				jam.set("meter", int(v.meter))
+			if (v.get("decay") is float or v.get("decay") is int) and "_decay" in jam:
+				jam.set("_decay", float(v.decay))
+		return
+	# EA machines that share a group with an older one: the assembler, kiln and
+	# reactor (briquette presses), the fabricator and fibre machines (papers)
+	# pick a recipe; a depot (wrappers) picks which kinds it empties.
+	if f == "recipe":
+		if not n.has_method("set_recipe") or not ((v is String and v.length() <= 64) or (v is StringName and String(v).length() <= 64) or (v is int and v >= -1 and v < 4096)):
+			return
+		if n.get("recipe") != v:
+			n.set_recipe(v)
+		return
+	if f == "paint":
+		if not n.has_method("set_paint") or not ((v is int and v >= -1 and v < 4096) or (v is String and v.length() <= 64) or v is Color):
+			return
+		if n.get("paint") != v:
+			n.set_paint(v)
+		return
+	if f == "emptying":
+		if not (v is bool) or not n.has_method("set_emptying"):
+			return
+		if n.get("emptying") != v:
+			n.set_emptying(v)
+		return
+	if f in ["water", "iron_points", "copper_points"]:
+		# the host's numbers, shown on a guest's panel
+		if mp.is_host or not (v is int or v is float) or not is_finite(float(v)):
+			return
+		n.set(f, v)
+		return
+	if f == "emptying_kinds":
+		if not n.has_method("set_emptying_kind") or not (v is Dictionary or v is Array or v is PackedInt32Array or v is PackedStringArray):
+			return
+		if v.size() > 256:
+			return
+		var want := _kind_set(v)
+		var have := _kind_set(n.get("emptying_kinds"))
+		for id in have:
+			if not want.has(id):
+				n.set_emptying_kind(id, false)
+		for id in want:
+			if not have.has(id):
+				n.set_emptying_kind(id, true)
+		return
 	if f == "mp_arm_status":
 		if not mp.is_host and n.has_method("mp_apply_status"):
 			n.mp_apply_status(v)
@@ -1281,6 +1530,52 @@ func _apply_field_value(n: Node, f: String, v: Variant) -> void:
 	if f == "mp_links" and n.has_method("load_links"):
 		n.load_links(v)
 		return
+	if f == "mp_saved":
+		if mp.is_host or not _saved_kind(n) or not (v is Dictionary) or v.size() > 64 or var_to_bytes(v).size() > 16384:
+			return
+		var mine: Dictionary = n.to_dict()
+		var changed := false
+		for k in v:
+			if k in SAVED_SKIP:
+				continue
+			if mine.get(k) != v[k]:
+				mine[k] = v[k]
+				changed = true
+		if changed:
+			n.from_dict(mine)
+		return
+	if f == "mp_tube":
+		# where the excavator's tube points, as its own save data has it
+		if not (n is HayExcavator) or not (v is Array) or v.size() != 2 or not (v[1] is bool) or not (v[0] is Array) or v[0].size() != 4:
+			return
+		for x in v[0]:
+			if not (x is float or x is int) or not is_finite(float(x)):
+				return
+		var saved: Dictionary = n.to_dict()
+		if saved.get("tube") == v[0] and saved.get("aimed") == v[1]:
+			return
+		saved["tube"] = v[0]
+		saved["aimed"] = v[1]
+		n.from_dict(saved)
+		return
+	if n is YardFan and f in ["turn", "tilt", "height", "strength"]:
+		if not (v is float or v is int) or not is_finite(float(v)) or absf(float(v)) > 1000.0:
+			return
+		if n.get(f) != v:
+			n.call("set_" + f, float(v))
+		return
+	if f == "mp_alert":
+		if not mp.is_host:
+			_alert.apply(n, v)
+		return
+	if f == "mp_crane_rig":
+		if not mp.is_host and n is SkylineCrane:
+			_crane_rig.apply(_key("skyline_cranes", n), n, v)
+		return
+	if f == "mp_crane_zone":
+		if v is Array and v.size() == 2 and v[0] is Vector3 and v[0].is_finite() and (v[1] is float or v[1] is int) 				and is_finite(float(v[1])) and float(v[1]) >= 0.0 and n.has_method("set_zone"):
+			n.set_zone(v[0], float(v[1]))
+		return
 	if f == "mp_zone" and v is Array and v.size() == 2:
 		if not (v[0] is Vector3) or not v[0].is_finite() or float(v[1]) <= 0:
 			n.clear_zone()
@@ -1314,11 +1609,12 @@ func _apply_field_value(n: Node, f: String, v: Variant) -> void:
 # still read as movement rather than stepping.
 func _ease(delta: float) -> void:
 	_arm_visual.step(delta)
+	_crane_rig.step(delta)
 	if _goal.is_empty():
 		return
-	var step_t := delta / TICK
 	var empty_keys: Array = []
 	for key in _goal:
+		var step_t := delta / float(_pose_gap.get(key, TICK))
 		var parts := _parts_of(key)
 		var slot := _slot_of(key)
 		var want: Dictionary = _goal[key]
@@ -1355,6 +1651,172 @@ func _ease(delta: float) -> void:
 			empty_keys.append(key)
 	for key in empty_keys:
 		_goal.erase(key)
+
+
+# Host: a bale leaving a wrapper's outfeed unwrapped is written down with the
+# wrapper's state at that moment.
+var _passes := {}  # wrapper instance id -> unwrapped bales seen leaving it
+
+func _hook_wrapper_outfeed(w: Node) -> void:
+	for c in w.get_children():
+		if c is BeltPath and c.name == "OutfeedStub" and c.run.has_signal("handed_out"):
+			# bound to the wrapper's id: a weakref is a new object every
+			# time, so the check never matched and every look added one more
+			# connection, all of them called for every bale
+			var cb := _on_wrapper_handed_out.bind(w.get_instance_id())
+			if not c.run.is_connected("handed_out", cb):
+				c.run.connect("handed_out", cb)
+
+
+func _on_wrapper_handed_out(_seq: int, kind: int, _strands: int, wrapper_id: int) -> void:
+	var w: Variant = instance_from_id(wrapper_id)
+	if not is_instance_valid(w) or mp.trace == null or kind < 0 or kind >= BeltRun.ITEM_IDS.size():
+		return
+	if BeltRun.ITEM_IDS[kind] != "hay_bale":
+		return
+	var id: int = w.get_instance_id()
+	_passes[id] = int(_passes.get(id, 0)) + 1
+	var n: int = _passes[id]
+	if n == 1 or n % 20 == 0:
+		mp.trace.note("wrapper let a bale through unwrapped (%d so far) %s: wrapping=%s progress=%.2f queued=%d waiting=%s released=%s off=%s power=%.2f blocked=%s full=%s" % [n,
+			str((w as Node3D).global_position.snapped(Vector3.ONE * 0.1)), str(w.is_wrapping()), float(w.wrap_progress()), w.queued.size(),
+			str(w.waiting_bales()), str(w.get("_released")), str(w.is_switched_off()), float(w.get("power")), str(w.get("power_blocked")),
+			str(w.is_full() if w.has_method("is_full") else null)])
+
+
+func _watch_wrappers() -> void:
+	if mp.trace == null:
+		return
+	for key in _nodes:
+		var n: Variant = _nodes[key]
+		if not (n is HayWrapper) or n is Depot or not is_instance_valid(n):
+			continue
+		_hook_wrapper_outfeed(n)
+		var waiting: int = int(n.waiting_bales()) if n.has_method("waiting_bales") else 0
+		var state := [n.is_wrapping(), snappedf(float(n.wrap_progress()), 0.01), n.queued.size(), waiting,
+			n.get("_released"), n.is_switched_off(), snappedf(float(n.get("power")), 0.01), n.get("power_blocked"),
+			n.is_full() if n.has_method("is_full") else null, n.outfeed_hold() if n.has_method("outfeed_hold") else null]
+		var seen: Array = _stuck.get(key, [null, 0])
+		if seen[0] == state and (waiting > 0 or bool(state[0])):
+			seen[1] = int(seen[1]) + 1
+		else:
+			seen = [state, 0]
+		_stuck[key] = seen
+		if int(seen[1]) == STUCK_AFTER:
+			mp.trace.note("wrapper stuck %s: wrapping=%s progress=%s queued=%s waiting=%s released=%s off=%s power=%s blocked=%s full=%s outfeed_hold=%s" % ([str((n as Node3D).global_position.snapped(Vector3.ONE * 0.1))] + state))
+	for key in _stuck.keys():
+		if not _nodes.has(key):
+			_stuck.erase(key)
+
+
+# ------------------------------------------------------------------ piston rake driving
+
+func _key_of(node: Node) -> String:
+	for key in _nodes:
+		if _nodes[key] == node:
+			return key
+	_rescan()
+	for key in _nodes:
+		if _nodes[key] == node:
+			return key
+	return ""
+
+
+# The check the rake panel passes along: can the rake go there, and why not.
+func _rake_check() -> Callable:
+	var player: Variant = mp.world_sync.get("player") if is_instance_valid(mp.world_sync) else null
+	var tool: Variant = player.get("build") if is_instance_valid(player) else null
+	if is_instance_valid(tool) and tool.has_method("rake_drive_reason"):
+		return Callable(tool, "rake_drive_reason")
+	return func(_rake: Node, _to: Vector3) -> String: return ""
+
+
+# Guest: the panel's drive button. True when it went to the host instead.
+func rake_drive_remote(rake: Node, direction: float) -> bool:
+	if not mp.active() or mp.is_host:
+		return false
+	var key := _key_of(rake)
+	if key != "" and is_finite(direction):
+		mp._rx_rake_drive.rpc_id(1, key, direction, mp._outgoing_world_seed())
+	return true
+
+
+# Host: a guest pressed drive.
+func on_rake_drive(key: String, direction: float) -> void:
+	if not mp.is_host or not is_finite(direction):
+		return
+	var rake: Variant = _nodes.get(_local_key(key))
+	if rake is PistonRake and not rake.is_driving():
+		rake.drive(clampf(direction, -1.0, 1.0), _rake_check())
+
+
+# Host: a rake set off, whoever pressed it.
+func rake_drive_started(rake: Node, direction: float) -> void:
+	if not mp.active() or not mp.is_host:
+		return
+	var key := _key_of(rake)
+	if key == "":
+		return
+	rake.set_meta("mp_drive_key", key)
+	mp._rx_rake_drive_go.rpc(key, direction, mp._outgoing_world_seed())
+
+
+# Host: the rake stopped; everyone puts theirs where ours is.
+func rake_drive_finished(rake: Node) -> void:
+	if not mp.active() or not mp.is_host or not rake.has_meta("mp_drive_key"):
+		return
+	var key := str(rake.get_meta("mp_drive_key"))
+	rake.remove_meta("mp_drive_key")
+	mp._rx_rake_drive_end.rpc(key, (rake as Node3D).global_transform, mp._outgoing_world_seed())
+	_rescan()
+
+
+# Guest: the host's rake set off, so ours drives along.
+func on_rake_drive_go(key: String, direction: float) -> void:
+	if mp.is_host or not is_finite(direction):
+		return
+	var rake: Variant = _nodes.get(_local_key(key))
+	if not (rake is PistonRake) or rake.is_driving():
+		return
+	rake.set_meta("mp_drive_key", key)
+	rake.set("mp_following", true)
+	rake.drive(clampf(direction, -1.0, 1.0), _rake_check())
+	rake.set("mp_following", false)
+	if rake.is_driving():
+		_driving[rake.get_instance_id()] = weakref(rake)
+
+
+# Guest: where the host's rake stopped.
+func on_rake_drive_end(key: String, xform: Transform3D) -> void:
+	if mp.is_host or not xform.origin.is_finite():
+		return
+	var rake: Variant = null
+	for id in _driving:
+		var r: Variant = _driving[id].get_ref()
+		if is_instance_valid(r) and str(r.get_meta("mp_drive_key", "")) == key:
+			rake = r
+			break
+	if rake == null:
+		rake = _nodes.get(_local_key(key))
+	if not (rake is PistonRake):
+		return
+	_driving.erase(rake.get_instance_id())
+	if rake.has_meta("mp_drive_key"):
+		rake.remove_meta("mp_drive_key")
+	if rake.is_driving():
+		rake._drive_done()
+	(rake as Node3D).global_transform = xform
+	_rescan()
+
+
+# A guest's rake is frozen (no _process), so its drive is stepped here.
+func _step_driving(delta: float) -> void:
+	for id in _driving.keys():
+		var rake: Variant = _driving[id].get_ref()
+		if not is_instance_valid(rake) or not rake.is_inside_tree() or not rake.is_driving():
+			_driving.erase(id)
+			continue
+		rake._drive_step(delta)
 
 
 # A client just arrived: forget what we think it knows, so the next ticks
@@ -1460,7 +1922,10 @@ func _read_fx(key: String, ids: PackedInt32Array, vals: PackedFloat32Array, forc
 
 func _note_fx(part_id: int, slot: int, v: float, was: Dictionary,
 		ids: PackedInt32Array, vals: PackedFloat32Array) -> void:
-	var at := "%d:%d" % [part_id, slot]
+	# a number, not "id:slot": formatting that string for every shader value
+	# of every part ten times a second was half of what a host spent
+	# sending machine poses
+	var at: int = (part_id << 8) | (slot + 1)
 	if was.has(at) and absf(float(was[at]) - v) < 0.004:
 		return
 	was[at] = v
@@ -1494,7 +1959,7 @@ func on_fx(key: String, ids: PackedInt32Array, vals: PackedFloat32Array) -> void
 		var names: PackedStringArray = d["names"]
 		if which < names.size():
 			var existing: ShaderMaterial = d["mat"]
-			if existing.has_meta("mp_own") and existing.get_shader_parameter(names[which]) == v:
+			if existing.get_shader_parameter(names[which]) == v:
 				continue
 			if not _live_part(key, parts[at]):
 				continue
@@ -1509,22 +1974,37 @@ func on_fx(key: String, ids: PackedInt32Array, vals: PackedFloat32Array) -> void
 func _own_material(key: String, at: int, d: Dictionary) -> ShaderMaterial:
 	var mat: ShaderMaterial = d["mat"]
 	var parts := _parts_of(key)
-	if at < 0 or at >= parts.size() or parts[at] == null or not is_instance_valid(parts[at]) \
-	or not (parts[at] is GeometryInstance3D):
+	if at < 0 or at >= parts.size() or parts[at] == null or not is_instance_valid(parts[at]) 	or not (parts[at] is GeometryInstance3D):
 		return null
 	if _shader_of(parts[at]) != mat or _is_build_glow(mat):
 		return null
 	if mat.has_meta("mp_own"):
 		return mat
+	# Work out where the copy goes before making it. A part whose mesh the
+	# game is rebuilding has no surfaces for a moment; the copy made for it
+	# used to be thrown away again, and that happened for every value the
+	# host sent: some 2000 material copies a second in a big yard, most of
+	# what a guest's frame cost.
+	var g := parts[at] as GeometryInstance3D
+	var whole := g.material_override == mat
+	if not whole:
+		if not (g is MeshInstance3D):
+			return mat
+		var mesh: Mesh = (g as MeshInstance3D).mesh
+		if mesh == null or mesh.get_surface_count() == 0:
+			return mat
+		# EA machines build many parts in code and rebuild their meshes; such
+		# a part can have no surfaces on the rendering side for a moment, and
+		# a surface override then fails ("p_surface = 0 is out of bounds").
+		# With one surface the whole-part override looks the same and always
+		# takes.
+		whole = mesh.get_surface_count() == 1 or mesh is ImmediateMesh
 	var own := mat.duplicate() as ShaderMaterial
 	own.set_meta("mp_own", true)
-	var g := parts[at] as GeometryInstance3D
-	if g.material_override == mat:
+	if whole:
 		g.material_override = own
-	elif g is MeshInstance3D:
-		(g as MeshInstance3D).set_surface_override_material(0, own)
 	else:
-		return mat
+		(g as MeshInstance3D).set_surface_override_material(0, own)
 	d["mat"] = own
 	return own
 
@@ -1560,7 +2040,7 @@ func _part_name(n: Node) -> String:
 
 
 func _protect_processors() -> void:
-	for group in ["compressors", "wrappers", "hay_drones", "robotic_arms", "hay_lifts", "hay_stairs", "scanners", "pelletizers", "joiners", "splitters"]:
+	for group in ["compressors", "wrappers", "hay_drones", "robotic_arms", "hay_lifts", "hay_stairs", "scanners", "pelletizers", "joiners", "splitters", "piston_rakes"]:
 		var nodes: Variant = builds.get(group)
 		if nodes is Array:
 			for node in nodes:
@@ -1568,7 +2048,7 @@ func _protect_processors() -> void:
 
 
 func _processor_added(node: Node) -> void:
-	if node is HayCompressor or node is HayWrapper or node is HayDrone or node is RoboticArm or node is HayLift or node is HayStairs or node is HaystackScanner or node is HayPelletizer or node is ConveyorJoiner or node is ConveyorSplitter:
+	if node is HayCompressor or node is HayWrapper or node is HayDrone or node is RoboticArm or node is HayLift or node is HayStairs or node is HaystackScanner or node is HayPelletizer or node is ConveyorJoiner or node is ConveyorSplitter or node is PistonRake:
 		_protect_processor_deferred.call_deferred(weakref(node))
 
 
@@ -1582,12 +2062,16 @@ func _protect_processor(node: Node) -> void:
 	if not _processors_enabled or not is_instance_valid(node) or not node.is_inside_tree() or not node.is_node_ready() or node.is_queued_for_deletion():
 		return
 	_protect_junction(node)
-	if not (node is HayCompressor or node is HayWrapper or node is HayDrone or node is RoboticArm or node is HayLift or node is HayStairs or node is HaystackScanner or node is HayPelletizer or node is ConveyorTSplitter):
+	if not (node is HayCompressor or node is HayWrapper or node is HayDrone or node is RoboticArm or node is HayLift or node is HayStairs or node is HaystackScanner or node is HayPelletizer or node is ConveyorTSplitter or node is PistonRake):
 		return
 	if node.placement_preview:
 		return
-	var original: Script = node.get_script()
 	var saved: Dictionary = _processor_hooks.get(node.get_instance_id(), {})
+	# a guest's alert-sign script sits on top of the replacement; one put on
+	# before the replacement comes off again first (the rescan puts it back)
+	if _alert.wrapped(node) and (saved.is_empty() or _alert.base_of(node) != saved["replacement"]):
+		_alert.unwrap(node, _replace_processor_script)
+	var original: Script = _alert.base_of(node)
 	if not saved.is_empty() and original == saved["replacement"]:
 		_refresh_processor_belt(node)
 		return
@@ -1612,6 +2096,8 @@ func _protect_processor(node: Node) -> void:
 		replacement = load(mp.base_dir + "/mp_robotic_arm.gd")
 	elif original.resource_path == "res://scripts/build/haystack_scanner.gd":
 		replacement = load(mp.base_dir + "/mp_haystack_scanner.gd")
+	elif original.resource_path == "res://scripts/build/piston_rake.gd":
+		replacement = load(mp.base_dir + "/mp_piston_rake.gd")
 	else:
 		return
 	_replace_processor_script(node, replacement)
@@ -1624,7 +2110,7 @@ func _protect_processor(node: Node) -> void:
 
 
 func _protect_junction(node: Node) -> void:
-	if not mp.is_host or not (node is ConveyorJoiner or node is ConveyorSplitter) or node.placement_preview or not "_jam" in node:
+	if not (node is ConveyorJoiner or node is ConveyorSplitter) or node.placement_preview or not "_jam" in node:
 		return
 	var helper: Variant = node.get("_jam")
 	if not is_instance_valid(helper):
@@ -1636,6 +2122,11 @@ func _protect_junction(node: Node) -> void:
 	if replacement == null:
 		return
 	_replace_junction_script(helper, replacement)
+	# A guest's junctions are frozen and its belts follow the host's: the
+	# game's own unjam there pushed riders on that the host still had waiting,
+	# 725 times in an evening against the host's 285, and every push came back
+	# as a reset (belts and smart splitters jumping). Only the host unjams.
+	helper.set("mp_guest", not mp.is_host)
 	_junction_hooks[helper.get_instance_id()] = {"helper": weakref(helper), "original": original, "replacement": replacement}
 
 
@@ -1668,6 +2159,15 @@ func _refresh_processor_belt(node: Node) -> void:
 	if not is_instance_valid(belt) or not belt.is_inside_tree():
 		return
 	var parks := Callable(node, "_parks")
+	# The demo's processors did not hold anything on their own belt, so the
+	# mod made them hold what they park. Early Access machines set their own
+	# hold when they build the belt; replacing it with the demo's rule let
+	# bales run through a wrapper unwrapped wherever no player was near (out
+	# there bales are records, and the hold is all that stops them). A belt
+	# the game already holds is left alone.
+	var native: Variant = belt.get("_eats")
+	if native is Callable and (native as Callable).is_valid() and native != parks and bool(belt.get("_records_held")):
+		return
 	if belt.get("_eats") != parks or not bool(belt.get("_records_held")) \
 			or belt.run.hold_for != Callable(belt, "_eats_kind"):
 		belt.hold_records(parks)
@@ -1679,7 +2179,17 @@ func _refresh_processor_belt(node: Node) -> void:
 
 
 func _live_part(key: String, part: Variant) -> bool:
-	return _part_attached(key, part) and not _is_transport_part(part)
+	if not _part_attached(key, part):
+		return false
+	# whether a part is a belt, a lift's load or an arm's hay hardly ever
+	# changes; it was worked out again, walking up to the scene root, for every
+	# part of every pose and every frame of every walk
+	var id: int = (part as Node).get_instance_id()
+	var known: Variant = _transport_memo.get(id)
+	if known == null:
+		known = _is_transport_part(part)
+		_transport_memo[id] = known
+	return not bool(known)
 
 func _part_attached(key: String, part: Variant) -> bool:
 	var machine: Variant = _nodes.get(key)
@@ -1688,6 +2198,18 @@ func _part_attached(key: String, part: Variant) -> bool:
 		and is_instance_valid(part) and part is Node3D \
 		and part.is_inside_tree() and not part.is_queued_for_deletion() \
 		and machine.is_ancestor_of(part)
+
+
+# The same as _is_transport_part, remembered until the next rescan: whether a
+# part is a belt, a lift's load or an arm's hay hardly ever changes, and the
+# host asked it again for every part of every machine ten times a second.
+func _transport_cached(part: Node, checked: Variant = null) -> bool:
+	var id: int = part.get_instance_id()
+	var known: Variant = _transport_memo.get(id)
+	if known == null:
+		known = _is_transport_part(part, checked)
+		_transport_memo[id] = known
+	return bool(known)
 
 
 func _is_transport_part(part: Node, checked: Variant = null) -> bool:
@@ -1704,6 +2226,9 @@ func _is_transport_part(part: Node, checked: Variant = null) -> bool:
 			found = true
 			break
 		var parent := current.get_parent()
+		# nothing above the machine can make a part of it a transport part
+		if parent == null or parent == builds or parent == world:
+			break
 		if parent is RoboticArm and current == parent.get("_payload_visual"):
 			found = true
 			break
@@ -1727,3 +2252,21 @@ func _is_transport_part(part: Node, checked: Variant = null) -> bool:
 func _observe_packet(rejected: bool) -> void:
 	if is_instance_valid(mp.world_sync) and is_instance_valid(mp.world_sync.diagnostics):
 		mp.world_sync.diagnostics.observe("machines", rejected, 1 if rejected else 0, 1)
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("machines", Time.get_ticks_usec() - __t)
+
+
+func on_poses(packed: PackedByteArray, raw_size: int) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_on_poses(packed, raw_size)
+	__MPCost.add("machines.on_poses", Time.get_ticks_usec() - __t)
+
+
+func on_fields(batch: Dictionary) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_on_fields(batch)
+	__MPCost.add("machines.on_fields", Time.get_ticks_usec() - __t)

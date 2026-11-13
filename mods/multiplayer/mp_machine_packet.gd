@@ -18,9 +18,8 @@ static func valid(batch: Variant) -> bool:
 				return false
 			if entry.i.size() > 120 or entry.t.size() != entry.i.size() * 12:
 				return false
-			for value in entry.t:
-				if not is_finite(value):
-					return false
+			if not _finite(entry.t):
+				return false
 		if entry.has("f"):
 			if not (entry.f is PackedInt32Array) or entry.f.size() > 240 or entry.f.size() % 2 != 0:
 				return false
@@ -29,7 +28,25 @@ static func valid(batch: Variant) -> bool:
 				return false
 			if entry.xi.size() != entry.xv.size() * 2:
 				return false
-			for value in entry.xv:
-				if not is_finite(value):
-					return false
+			if not _finite(entry.xv):
+				return false
 	return true
+
+
+# No infinity or NaN in the numbers. A script loop over every value cost a
+# guest more than applying the poses did. The array's own search finds the
+# infinities natively, and a NaN anywhere makes a sum NaN, so one sum covers
+# it, added twelve values (one transform) at a time.
+static func _finite(values: PackedFloat32Array) -> bool:
+	if values.has(INF) or values.has(-INF):
+		return false
+	var total := 0.0
+	var at := 0
+	var n := values.size()
+	while at + 12 <= n:
+		total += values[at] + values[at + 1] + values[at + 2] + values[at + 3] + values[at + 4] + values[at + 5] + values[at + 6] + values[at + 7] + values[at + 8] + values[at + 9] + values[at + 10] + values[at + 11]
+		at += 12
+	while at < n:
+		total += values[at]
+		at += 1
+	return is_finite(total)

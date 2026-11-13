@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 # Loose item replication.
 #
@@ -19,6 +20,10 @@ const MOVE_BUDGET := 60
 const STATE_BUDGET := 20
 const RESET_BATCH := 30
 const SMOOTH := 16.0
+# Between two updates a moving copy carries on along its last known velocity
+# (and falls, if it is in the air) instead of stopping at the last position.
+const EXTRAPOLATE_MAX := 0.3
+const AIRBORNE_VY := 0.3
 # tool items and the avatar tool that draws them, see _hide_held_tools
 const TOOL_ITEMS := {"spade": 1, "pitchfork": 2, "broom": 3, "sand_shovel": 4,
 	"metal_detector": 5, "yard_vac": 6}
@@ -35,8 +40,11 @@ var _tool_ids := {}
 var _by_id := {}     # mp id -> Carryable
 var _owner := {}     # mp id -> peer id
 var _sent := {}      # mp id -> last transform we broadcast
+var _sent_at := {}   # mp id -> msec it went out
 var _hash := {}      # mp id -> hash of the last state we broadcast
 var _goal := {}      # mp id -> transform a remote copy is easing towards
+var _motion := {}    # mp id -> [goal it belongs to, velocity, received at (s)]
+var _gravity: float = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
 var _want := {}      # mp id -> peer we expect it from
 var _manager_script: Script
 var _cleanup_state := {"auto_clean": false, "prop_decay": false, "auto_clean_seconds": 60.0}
@@ -125,6 +133,7 @@ func shutdown() -> void:
 	_owned.clear()
 	_tool_ids.clear()
 	_goal.clear()
+	_motion.clear()
 	_settling.clear()
 	_move_order.clear()
 
@@ -200,8 +209,10 @@ func _forget(id: int, deleted: bool = true) -> void:
 	_by_id.erase(id)
 	_owner.erase(id)
 	_sent.erase(id)
+	_sent_at.erase(id)
 	_hash.erase(id)
 	_goal.erase(id)
+	_motion.erase(id)
 	_claim_pending.erase(id)
 	_settling.erase(id)
 	_move_order.erase(id)
@@ -275,10 +286,65 @@ func host_take(item: Variant) -> bool:
 	return true
 
 
+# Host only, before a tidy-up. Whatever lies on the floor as a guest's copy
+# (a guest bumped it or stands near it, so a guest moves it) is off limits to
+# the game's sweep, and a guest's world never sweeps things at all: in the
+# host's yard 12 of 17 bricks left on the floor after a tidy-up were copies
+# like that. Take them over first; what a guest is carrying stays theirs.
+func take_floor_litter(props: Node) -> int:
+	if not mp.is_host or not is_instance_valid(props):
+		return 0
+	var taken := 0
+	for item in props.items:
+		if not is_instance_valid(item) or not item.has_meta("mp_copy") or not item.has_meta("mp_id"):
+			continue
+		if item.has_meta("belt_rider") or (item.has_method("is_held") and item.is_held()):
+			continue
+		if preload("res://mods/multiplayer/mp_lift_cargo.gd").is_transported(item):
+			continue
+		if not props.is_floor_litter(item):
+			continue
+		if host_take(item):
+			taken += 1
+	return taken
+
+
+var guest_factory_dropped := 0
+
+func _drop_factory_made(item: Node) -> void:
+	guest_factory_dropped += 1
+	if item is Node3D:
+		(item as Node3D).visible = false
+	if item is RigidBody3D:
+		(item as RigidBody3D).freeze = true
+		(item as RigidBody3D).collision_layer = 0
+		(item as RigidBody3D).collision_mask = 0
+	_free_factory_made.call_deferred(weakref(item))
+
+
+func _free_factory_made(ref: WeakRef) -> void:
+	var item: Variant = ref.get_ref()
+	if not is_instance_valid(item) or item.has_meta("mp_id"):
+		return
+	if is_instance_valid(props) and props.items.has(item):
+		props.remove(item)
+	elif not item.is_queued_for_deletion():
+		item.queue_free()
+
+
 # ------------------------------------------------------------------ local events
 
 func _on_added(item: Node) -> void:
 	if _busy or not _ready_map or item.has_meta("mp_id"):
+		return
+	# Guest: what the factory makes is the host's to make, as with straw. Our
+	# copies of the belts and presses run up to machines frozen here, and what
+	# fell out of them became real items, sent to everyone as ours: 152 eco
+	# bricks and 13 scrap in two minutes of the host's yard, lying beside the
+	# belts on every screen, and no tidy-up could take them (a guest's item
+	# is off limits to the host's sweep). The host's own reach us as copies.
+	if not mp.is_host and preload("res://mods/multiplayer/mp_cost.gd").in_clock:
+		_drop_factory_made(item)
 		return
 	var id := _new_id()
 	_adopt(item, id, _me())
@@ -286,7 +352,7 @@ func _on_added(item: Node) -> void:
 	var st := _state_of(item)
 	_hash[id] = st.hash()
 	if _log:
-		print("[MPPROPS] made %s id=%d at %v" % [item.item_id, id, item.global_position])
+		print("[MPPROPS] made %s id=%d at %v clock=%s parent=%s" % [item.item_id, id, item.global_position, str(preload("res://mods/multiplayer/mp_cost.gd").in_clock), str(item.get_parent().name) if item.get_parent() else "-"])
 	mp._rx_prop_add.rpc(id, String(item.item_id), item.global_transform, st, mp._outgoing_world_seed())
 
 
@@ -448,7 +514,7 @@ func _state_of(item: Node) -> Dictionary:
 
 # ------------------------------------------------------------------ ticks
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	_smooth(delta)
 	_held_t += delta
 	if _held_t >= HELD_TICK:
@@ -561,9 +627,12 @@ func held_by(pid: int) -> Array:
 # Remote copies ease towards the last position we heard about instead of
 # jumping ten times a second.
 func _smooth(delta: float) -> void:
+	if __MPCost.is_off("items"):
+		return
 	if _goal.is_empty():
 		return
 	var f := minf(1.0, delta * SMOOTH)
+	var now := Time.get_ticks_msec() / 1000.0
 	var done: Array = []
 	for id in _goal:
 		var it: Variant = _by_id.get(id)
@@ -574,22 +643,34 @@ func _smooth(delta: float) -> void:
 			# a farmer is holding it, the goal waits for them to let go
 			continue
 		var want: Transform3D = _goal[id]
+		var moving := false
+		var motion: Variant = _motion.get(id)
+		if motion != null and motion[0] == want:
+			var age := minf(now - float(motion[2]), EXTRAPOLATE_MAX)
+			var vel: Vector3 = motion[1]
+			want.origin += vel * age
+			if absf(vel.y) > AIRBORNE_VY:
+				want.origin.y -= 0.5 * _gravity * age * age
+			moving = now - float(motion[2]) < EXTRAPOLATE_MAX
 		if it.global_transform == want:
-			done.append(id)
+			if not moving:
+				done.append(id)
 			continue
 		var step: Transform3D = it.global_transform.interpolate_with(want, f)
 		_place(it, step)
-		if step.origin.distance_to(want.origin) < 0.002:
+		if not moving and step.origin.distance_to(want.origin) < 0.002:
 			_place(it, want)
 			done.append(id)
 	for id in done:
 		_goal.erase(id)
+		_motion.erase(id)
 
 
 func _move_tick() -> void:
 	var ids := PackedInt64Array()
 	var xfs: Array = []
 	var epochs := PackedInt64Array()
+	var vels := PackedVector3Array()
 	var resting := PackedInt64Array()
 	var rest_xfs: Array = []
 	var rest_epochs := PackedInt64Array()
@@ -612,16 +693,26 @@ func _move_tick() -> void:
 				rest_xfs.append(xf)
 				rest_epochs.append(int(_epoch.get(id, 0)))
 		else:
+			var now_ms := Time.get_ticks_msec()
+			var vel: Vector3 = it.linear_velocity if it is RigidBody3D and not it.freeze else Vector3.ZERO
+			# a frozen body (in an arm's claw, on a lift) reports no velocity
+			# while it is carried along; take it from how far it went
+			if vel == Vector3.ZERO and last != null and _sent_at.has(id):
+				var gap := float(now_ms - int(_sent_at[id])) / 1000.0
+				if gap > 0.02 and gap < 0.5:
+					vel = ((xf.origin - (last as Transform3D).origin) / gap).limit_length(30.0)
 			_sent[id] = xf
+			_sent_at[id] = now_ms
 			_settling[id] = true
 			ids.append(id)
 			xfs.append(xf)
 			epochs.append(int(_epoch.get(id, 0)))
+			vels.append(vel)
 		if ids.size() + resting.size() >= MOVE_BUDGET:
 			break
 	if not ids.is_empty():
 		_move_sequence += 1
-		mp._rx_prop_move.rpc(ids, xfs, _move_sequence, epochs, mp._outgoing_world_seed())
+		mp._rx_prop_move.rpc(ids, xfs, _move_sequence, epochs, mp._outgoing_world_seed(), vels)
 	if not resting.is_empty():
 		_move_sequence += 1
 		mp._rx_prop_rest.rpc(resting, rest_xfs, _move_sequence, rest_epochs, mp._outgoing_world_seed())
@@ -678,6 +769,7 @@ func _census_tick() -> void:
 		if Time.get_ticks_msec() - int(_deleted[id]) > 120000:
 			_deleted.erase(id)
 	_sent.clear()
+	_sent_at.clear()
 	for id in _hash.keys():
 		if _mine(id):
 			_hash.erase(id)
@@ -724,7 +816,8 @@ func on_del(sender: int, ids: PackedInt64Array) -> void:
 			_busy = false
 
 
-func on_move(sender: int, ids: PackedInt64Array, xfs: Array, sequence: int = 0, epochs: PackedInt64Array = PackedInt64Array()) -> void:
+func on_move(sender: int, ids: PackedInt64Array, xfs: Array, sequence: int = 0, epochs: PackedInt64Array = PackedInt64Array(), vels: PackedVector3Array = PackedVector3Array()) -> void:
+	var now := Time.get_ticks_msec() / 1000.0
 	for i in mini(ids.size(), xfs.size()):
 		var id: int = ids[i]
 		if _mine(id):
@@ -745,6 +838,11 @@ func on_move(sender: int, ids: PackedInt64Array, xfs: Array, sequence: int = 0, 
 		if sequence > 0:
 			_move_order[id] = sequence
 		_goal[id] = xfs[i]
+		var vel: Vector3 = vels[i] if i < vels.size() else Vector3.ZERO
+		if vel.is_finite() and vel.length_squared() > 0.0001 and vel.length_squared() < 2500.0:
+			_motion[id] = [xfs[i], vel, now]
+		else:
+			_motion.erase(id)
 
 
 func on_state(sender: int, ids: PackedInt64Array, states: Array) -> void:
@@ -835,6 +933,7 @@ func on_owner(id: int, owner: int, epoch: int, holding: bool) -> void:
 		_held[id] = true
 	_hash.erase(id)
 	_sent.erase(id)
+	_sent_at.erase(id)
 	_settling.erase(id)
 	if ownership_changed:
 		_move_order.erase(id)
@@ -938,10 +1037,12 @@ func on_reset(first: bool, ids: PackedInt64Array, owners: PackedInt32Array, entr
 			_epoch.clear()
 			_deleted.clear()
 			_sent.clear()
+			_sent_at.clear()
 			_settling.clear()
 			_move_order.clear()
 			_hash.clear()
 			_goal.clear()
+			_motion.clear()
 			_want.clear()
 			_held.clear()
 			_hidden.clear()
@@ -1004,6 +1105,7 @@ func peer_gone(pid: int) -> void:
 		if _me() == 1:
 			_release(it)
 			_sent.erase(id)
+			_sent_at.erase(id)
 
 
 func _replace_script(item: Node, script: Script) -> void:
@@ -1078,3 +1180,9 @@ func retire_equipped_tools(pid: int) -> void:
 		var item: Variant = _by_id[id]
 		if int(_owner.get(id, 0)) == pid and is_instance_valid(item) and is_personal_tool_body(item):
 			props.remove(item)
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("props", Time.get_ticks_usec() - __t)

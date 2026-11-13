@@ -518,8 +518,8 @@ func from_array(data: Array) -> void:
 		else:
 			receiver._serve()
 
-func add_wall(from: Vector3, to: Vector3, kind: YardWall.Bay) -> YardWall:
-	var wall := super.add_wall(from, to, kind)
+func add_wall(from: Vector3, to: Vector3, kind: YardWall.Bay, height: float = 3.0, glass: bool = false, port_lift: float = 0.0) -> YardWall:
+	var wall := super.add_wall(from, to, kind, height, glass, port_lift)
 	var color: int = int(get_meta("mp_wall_color")) if has_meta("mp_wall_color") else 0
 	return WallPalette.apply(wall, color)
 

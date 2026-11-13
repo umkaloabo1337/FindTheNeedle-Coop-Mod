@@ -1,29 +1,50 @@
 extends "res://scripts/ui/pause_menu.gd"
 
+# "Save and return to title" / "save and quit" in co-op.
+#
+# The mod used to replace both with its own demo-era version: save, show the
+# loading screen, change to the menu scene. In the Early Access game nothing
+# took that loading screen down again, so the player was left on a black
+# screen with only the version in the corner. The game's own handlers do it
+# right, so they run now; the mod only steps in where co-op differs:
+# a guest never saves (the world is the host's), and a host waits while a
+# shared clean-up is still running.
+
 func _on_exit_to_title() -> void:
-	if not _mp_save_before_leaving():
+	var session := _mp_session()
+	if session != null and not session.is_host:
+		if _leaving:
+			return
+		_leaving = true
+		Audio.play("ui_back")
+		# ends the session and takes the guest back to the menu
+		session.leave()
 		return
-	_leaving = true
-	Audio.play("ui_back")
-	Loading.show_screen("FIND THE NEEDLE", tr("RETURNING TO THE YARD"))
-	get_tree().change_scene_to_file(MENU_SCENE)
+	if _mp_cleanup_busy():
+		return
+	super._on_exit_to_title()
+
 
 func _on_quit() -> void:
-	if not _mp_save_before_leaving():
+	var session := _mp_session()
+	if session != null and not session.is_host:
+		if _leaving:
+			return
+		_leaving = true
+		get_tree().quit()
 		return
-	_leaving = true
-	get_tree().quit()
+	if _mp_cleanup_busy():
+		return
+	super._on_quit()
 
-func _mp_save_before_leaving() -> bool:
-	if _leaving:
-		return false
+
+func _mp_session() -> Node:
 	var session := get_node_or_null("/root/MPMod")
-	if is_instance_valid(session) and session.active() and not session.is_host:
-		return true
-	if _save():
-		return true
+	return session if is_instance_valid(session) and session.active() else null
+
+
+func _mp_cleanup_busy() -> bool:
 	if SaveManager.has_method("mp_cleanup_pending") and SaveManager.mp_cleanup_pending():
 		_status.text = "Aufräumen wird abgeschlossen. Danach speichern und beenden." if TranslationServer.get_locale().begins_with("de") else "Cleanup is finishing. Save and exit after it completes."
-	else:
-		_status.text = tr("Could not write the save")
+		return true
 	return false

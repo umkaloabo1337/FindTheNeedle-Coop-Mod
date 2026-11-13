@@ -1,4 +1,4 @@
-FIND THE NEEDLE CO-OP – 0.19.6-xRangerDE.80
+FIND THE NEEDLE CO-OP – 0.19.6-umka1337.94
 
 Das Multiplayer-Menü führt durch Sitzung, Freunde und Spielstand. Gastgeber können die native Spielstandauswahl direkt öffnen. Gäste sehen ihren Verbindungs- und Ladezustand. IP-Verbindungen sind im aufklappbaren Bereich verfügbar. Die Oberfläche und ihre Statusmeldungen unterstützen alle 17 Spielsprachen.
 
@@ -37,6 +37,13 @@ INSTALLATION AUF WEITEREN RECHNERN
    MPMod="*mods/multiplayer/mp.gd"
    Vorhandene andere Einstellungen beibehalten.
    Das ZIP enthält keine override.cfg und ersetzt keine Grafikeinstellungen.
+   Empfohlen für große Höfe im Endgame (sonst kann das Bild nach etwa einer
+   Stunde schwarz werden, D3D12 „descriptor heap“):
+   [rendering]
+   rendering_device/d3d12/max_resource_descriptors=262144
+   Gibt es [rendering] schon, nur die zweite Zeile darunter eintragen. Fehlt
+   die Zeile, trägt der Mod sie beim ersten Start selbst ein (Sicherung:
+   override.cfg.mp_backup); sie gilt dann ab dem nächsten Spielstart.
 5. Über Steam starten. Der Host lädt seinen Spielstand und lädt die Mitspieler ein.
 
 PREISE UND GUTSCHRIFT
@@ -283,6 +290,12 @@ WEITERE SYNCHRONISIERUNG
 - Der Host bestätigt Gegenstandsübernahmen und Tech-Käufe.
 - F8 gleicht die laufende Welt ab. Die Gastwelt wird dadurch nicht neu geladen.
 - Abweichende Förderbandlayouts werden automatisch abgeglichen.
+- Teile auf Förderbändern werden beim Gast einzeln abgeglichen statt das ganze
+  Band zurückzusetzen; Verteiler und Zusammenführungen laufen auch beim Gast.
+- Das Ende gilt für alle: Knopf am Nadelschrank, Schlüssel, Bodenklappe und
+  die Endsequenz unten. Danach bleiben alle im Hof, der Host speichert wieder.
+- Schlüssel nicht zu finden (die Tafel sagt „Der Schlüssel ist draußen“)?
+  Im Chat (Y) /schluessel eingeben: Er liegt dann für alle vor deinen Füßen.
 - Questabschlüsse werden gemeinsam übernommen. Questgeld und Gratisbauten
   werden ausschließlich vom Host vergeben, auch nach einem erneuten Abgleich.
 - Einstellungen, Tafeln und Gegenstände werden synchronisiert.
@@ -379,3 +392,16 @@ Autoload-Einträge behalten. Falls eine frühere Installation override.cfg
 der jeweiligen Mod wiederherstellen. Nach der Deinstallation ist die Brücke
 nicht mehr aktiv; die übrigen Mods müssen die Spielversion selbst unterstützen.
 Bereits gespeicherte modbezogene Spielstandsdaten werden nicht zurückgesetzt.
+
+VERBINDUNGSABBRÜCHE
+- Fliegt jemand aus der Sitzung, schreibt der Mod einen Bericht nach
+  %APPDATA%\Godot\app_userdata\FindTheNeedle\mp_drops.log (Uhrzeit, Ping,
+  Steams Grund für das Verbindungsende und die letzten Ereignisse davor).
+  Diese Datei bleibt auch nach einem Neustart erhalten. Bitte nach einem
+  Abbruch von beiden Seiten schicken (der Host hat dort einen Eintrag für
+  den Spieler, der gegangen ist).
+
+DANKE
+- Betreut von umka1337.
+- Danke an AleDev11 für den ursprünglichen Koop-Mod und die Idee dahinter,
+  und an xRangerDE für die Wartungsversionen, auf denen diese Version aufbaut.

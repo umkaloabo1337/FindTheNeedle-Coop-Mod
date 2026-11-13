@@ -1,4 +1,4 @@
-MOD COOPERATIVO PARA FIND THE NEEDLE  v0.19.6-xRangerDE.80
+MOD COOPERATIVO PARA FIND THE NEEDLE  v0.19.6-umka1337.94
 =============================================
 
 Mod no oficial. Todos los jugadores necesitan el juego (la demo, gratis en
@@ -20,6 +20,16 @@ MPMod="*mods/multiplayer/mp.gd"
 
    Si el archivo ya tiene una linea [autoload], anade solo la linea MPMod
    debajo.
+
+   Recomendado para granjas grandes del final (si no, la pantalla puede
+   quedarse negra tras una hora, error D3D12 "descriptor heap"):
+
+[rendering]
+rendering_device/d3d12/max_resource_descriptors=262144
+
+   Si ya existe una linea [rendering], anade solo la segunda linea debajo.
+   Si falta, el mod la anade solo al primer inicio (copia de seguridad:
+   override.cfg.mp_backup); se aplica desde el siguiente inicio.
 
 3. Abre el juego DESDE STEAM. En el menu principal aparece MULTIPLAYER.
 
@@ -61,6 +71,9 @@ QUE SE COMPARTE
   - Los objetos sueltos: cubos, sacos, fardos, manojos. Ves lo que los demas
     cogen, llevan, sueltan y lanzan, y puedes coger tu sus cosas.
   - Lo que va montado en las cintas.
+  - El final: el boton de la vitrina, la llave, la trampilla y el
+    espectaculo de abajo se ven en todos. Despues todos siguen en la granja.
+    No encuentras la llave? Escribe /llave en el chat (Y) y aparece a tus pies.
   - La paja suelta del suelo, para que todos caven sobre el mismo desorden.
   - Como se mueven las maquinas, su humo y sus luces, y sus ajustes.
   - La paja y la aguja de la mano, dibujadas en el puno del granjero.
@@ -87,6 +100,10 @@ CREDITOS
   GodotSteam (GDExtension), MIT, https://godotsteam.com
   SDK de Steamworks, (c) Valve Corporation.
   Codigo: https://github.com/AleDev11/FindTheNeedle-Coop-Mod
+
+  Mantenido por umka1337.
+  Gracias a AleDev11 por el mod cooperativo original y la idea, y a
+  xRangerDE por las versiones de mantenimiento en las que se basa.
 
 RECUPERACIÓN
 La partida del anfitrión o de un jugador guarda el contenido del aspirador y su

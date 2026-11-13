@@ -3,13 +3,14 @@
 # Loaded from override.cfg. Owns the ENet session, the lobby flow, the world
 # hand-off and every RPC. Per-world syncing lives in mp_world.gd.
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const BuildSnapshot = preload("res://mods/multiplayer/mp_build_snapshot.gd")
 const Progression = preload("res://mods/multiplayer/mp_progression.gd")
 const Balance = preload("res://mods/multiplayer/mp_balance.gd")
 const VacUpgrades = preload("res://mods/multiplayer/mp_vac_upgrades.gd")
 
-const VERSION := "0.19.6-xRangerDE.80"
+const VERSION := "0.19.6-umka1337.94"
 const DEFAULT_PORT := 7777
 const MAX_PEERS := 8  # players in a session, host included (Steam counts the same way)
 const WORLD_CHUNK := 60000
@@ -58,6 +59,14 @@ var vacuum_transfer_local: Dictionary = {}
 var vacuum_checkpoint: Node
 var addon_bridge: Node = null
 var _last_scene: Node = null
+# How old the host's world is by the time it reaches a guest, in seconds.
+# Belt and item updates are moved forward by this much so they do not snap
+# back to where things were when the host sent them.
+var one_way_s := 0.06
+var _resync_asked_at := 0  # msec a guest asked for the world (F2), 0 when answered
+const RESYNC_WAIT_MS := 10000
+var _ping_t := 0.0
+const PING_TICK := 1.0
 var _menu_button: WeakRef
 var _menu_retry := 0.0
 var _world_rx := {}
@@ -119,7 +128,9 @@ func _ready() -> void:
 	steam.lobby_created.connect(_on_steam_lobby_created)
 	steam.lobby_joined.connect(_on_steam_lobby_joined)
 	steam.join_requested.connect(_on_steam_join_requested)
+	steam.invited.connect(_on_steam_invited)
 	_start_steam.call_deferred()
+	get_tree().create_timer(6.0).timeout.connect(_check_descriptors)
 	if OS.get_environment("MP_TEST_HOST") != "" or OS.get_environment("MP_TEST_JOIN") != "" or OS.get_environment("MP_TEST_STEAM") != "" or OS.get_environment("MP_TEST_AVATAR") != "":
 		# the test harness is a dev-only file and is not shipped in releases
 		var test_script: Script = load(base_dir + "/mp_test.gd") if FileAccess.file_exists(base_dir + "/mp_test.gd") else null
@@ -151,6 +162,10 @@ func _ready() -> void:
 		"mp_catalog_panel.gd",
 		"mp_contracts.gd",
 		"mp_delivery_board.gd",
+		"mp_depot_rates.gd",
+		"mp_crane_rig.gd",
+		"mp_alert_sync.gd",
+		"mp_jet_vfx.gd",
 		"mp_diagnostic_state.gd",
 		"mp_diagnostics.gd",
 		"mp_distributor_drive.gd",
@@ -205,12 +220,15 @@ func _ready() -> void:
 		"mp_mice.gd",
 		"mp_missions.gd",
 		"mp_needle_cabinet.gd",
+		"mp_ending.gd",
 		"mp_needle_report.gd",
 		"mp_needle_sync.gd",
 		"mp_options_panel.gd",
 		"mp_pause_menu.gd",
 		"mp_player.gd",
 		"mp_power.gd",
+		"mp_piston_rake.gd",
+		"mp_cost.gd",
 		"mp_power_tags.gd",
 		"mp_prestige.gd",
 		"mp_prestige_field.gd",
@@ -348,8 +366,10 @@ func t(key: String) -> String:
 	return i18n.t(key)
 
 
-func _process(_delta: float) -> void:
+func _mp_timed_process(_delta: float) -> void:
 	_poll_join_queue(_delta)
+	_share_trace(_delta)
+	_perf_tick(_delta)
 	_vac_upgrades.ensure_cards()
 	_progression.ensure_cards()
 	Balance.ensure_cards()
@@ -360,6 +380,11 @@ func _process(_delta: float) -> void:
 		_last_scene = cs
 		_on_scene_changed(cs)
 	_update_menu_hook(cs, _delta)
+	_ping(_delta)
+	if _resync_asked_at > 0 and Time.get_ticks_msec() - _resync_asked_at > RESYNC_WAIT_MS:
+		_resync_asked_at = 0
+		if active() and is_instance_valid(ui):
+			ui.notify(preload("res://mods/multiplayer/mp_i18n.gd").phrase("Der Host hat nicht geantwortet. Habt ihr beide dieselbe Mod-Version? Sonst bitte neu beitreten.", "The host did not answer. Do you both have the same mod version? Otherwise please rejoin."))
 	if _world_watch != null and is_instance_valid(_world_watch) and world_sync == null:
 		if bool(_world_watch.get("_built")):
 			_start_world_sync(_world_watch)
@@ -505,6 +530,129 @@ func active() -> bool:
 	return phase != Phase.OFFLINE
 
 
+var _share_t := 0.0
+
+func _share_trace(delta: float) -> void:
+	if trace == null:
+		return
+	trace.share = is_host and phase != Phase.OFFLINE and players.size() > 1
+	if not trace.share:
+		trace.shared.clear()
+		return
+	_share_t += delta
+	if _share_t < 2.0 or trace.shared.is_empty():
+		return
+	_share_t = 0.0
+	var lines: PackedStringArray = trace.shared
+	trace.shared = PackedStringArray()
+	for pid in players:
+		if pid != 1 and str(players[pid].get("state", "")) == "world":
+			_rx_host_trace.rpc_id(pid, lines)
+
+
+@rpc("authority", "call_remote", "reliable", 3)
+func _rx_host_trace(lines: PackedStringArray) -> void:
+	if is_host or trace == null or lines.size() > 400:
+		return
+	trace.host_lines(lines)
+
+
+# ---------------------------------------------------------------- /perf
+# Typed in the chat, only on this PC: "/perf" shows the frame and what the
+# mod spends; "/perf belts|poses|items|straw|lod|all" switches that part off or
+# back on; "/perf watch" repeats the line every 5 seconds.
+const PERF_PARTS := ["belts", "poses", "items", "straw", "lod"]
+var _perf_watch := false
+var _perf_t := 0.0
+var _perf_last := ""
+
+func _perf_command(text: String) -> void:
+	const Cost = preload("res://mods/multiplayer/mp_cost.gd")
+	var arg := text.substr(5).strip_edges().to_lower()
+	if arg == "watch":
+		_perf_watch = not _perf_watch
+		_perf_say("watch " + ("on" if _perf_watch else "off"))
+		return
+	if arg == "all":
+		var any_on := false
+		for p in PERF_PARTS:
+			if not Cost.off.has(p):
+				any_on = true
+		for p in PERF_PARTS:
+			if any_on:
+				Cost.off[p] = true
+			else:
+				Cost.off.erase(p)
+		_perf_after_switch()
+		_perf_say("all " + ("off" if any_on else "on"))
+		return
+	if arg in PERF_PARTS:
+		if Cost.off.has(arg):
+			Cost.off.erase(arg)
+		else:
+			Cost.off[arg] = true
+		_perf_after_switch()
+		_perf_say("%s %s" % [arg, "off" if Cost.off.has(arg) else "on"])
+		return
+	_perf_say(_perf_line())
+
+
+func _perf_after_switch() -> void:
+	const Cost = preload("res://mods/multiplayer/mp_cost.gd")
+	if is_instance_valid(world_sync) and is_instance_valid(world_sync.belts_sync):
+		if Cost.off.has("lod"):
+			world_sync.belts_sync._lod_release()
+		world_sync.belts_sync.set("_lod_disabled", Cost.off.has("lod"))
+
+
+func _perf_line() -> String:
+	const Cost = preload("res://mods/multiplayer/mp_cost.gd")
+	var fps := Engine.get_frames_per_second()
+	var offs := ", ".join(PackedStringArray(Cost.off.keys())) if not Cost.off.is_empty() else "-"
+	return "%d fps | scripts %.0f ms | physics %.0f ms | off: %s | mod/s: %s" % [fps,
+		1000.0 * Performance.get_monitor(Performance.TIME_PROCESS),
+		1000.0 * Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS), offs, _perf_last]
+
+
+func _perf_tick(delta: float) -> void:
+	_perf_t += delta
+	if _perf_t < 5.0:
+		return
+	_perf_t = 0.0
+	if _perf_watch:
+		_perf_say(_perf_line())
+
+
+func _perf_say(text: String) -> void:
+	if is_instance_valid(ui):
+		ui.chat_line("perf", Color(0.6, 0.9, 1.0), text)
+
+
+func _ping(delta: float) -> void:
+	if is_host or phase != Phase.IN_WORLD or multiplayer.multiplayer_peer == null 			or multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
+		return
+	_ping_t += delta
+	if _ping_t < PING_TICK:
+		return
+	_ping_t = 0.0
+	_rx_ping.rpc_id(1, Time.get_ticks_msec())
+
+
+# Same channel as the belt list, so the time measured is the time a belt
+# update actually spends on the way.
+@rpc("any_peer", "call_remote", "reliable", 1)
+func _rx_ping(sent_ms: int) -> void:
+	if is_host:
+		_rx_pong.rpc_id(multiplayer.get_remote_sender_id(), sent_ms)
+
+
+@rpc("authority", "call_remote", "reliable", 1)
+func _rx_pong(sent_ms: int) -> void:
+	var rtt := float(Time.get_ticks_msec() - sent_ms) / 1000.0
+	if rtt >= 0.0 and rtt < 3.0:
+		one_way_s = lerpf(one_way_s, rtt * 0.5, 0.25)
+
+
 # ---------------------------------------------------------------- Steam session
 # Steam's relay does the NAT work: both players connect out to Steam, so
 # nobody opens a port and friends join from the Steam friends list.
@@ -612,8 +760,25 @@ func _on_steam_lobby_joined(ok: bool, id: int, reason: String) -> void:
 	ui.refresh()
 
 
+func _on_steam_invited(inviter: int, _lobby_id: int) -> void:
+	var who := ""
+	if steam_ready() and steam.steam != null:
+		who = str(steam.steam.call("getFriendPersonaName", inviter))
+	ui.notify(preload("res://mods/multiplayer/mp_i18n.gd").phrase(
+		"%s hat dich eingeladen. Nimm die Einladung in Steam an, um beizutreten." % who,
+		"%s invited you. Accept the invite in Steam to join." % who))
+
+
 func _on_steam_join_requested(lobby_id: int) -> void:
-	# invite accepted (overlay or friends list) while the game is running
+	# invite accepted (overlay or friends list) while the game is running.
+	# Never out of a running session: a host taking a join request left its
+	# own game for it, guests and all, and the game crashed on the way.
+	if active() and (is_host or in_world()):
+		if lobby_id != steam.lobby_id:
+			ui.notify(preload("res://mods/multiplayer/mp_i18n.gd").phrase(
+				"Beitrittsanfrage ignoriert: Du bist gerade in einem Spiel. Verlass es zuerst.",
+				"Join request ignored: you are in a game right now. Leave it first."))
+		return
 	join_steam(lobby_id)
 
 
@@ -807,6 +972,8 @@ func _on_peer_connected(id: int) -> void:
 
 func _on_peer_disconnected(id: int) -> void:
 	trace.note("peer %d disconnected" % id)
+	if is_host and players.has(id):
+		trace.drop_report("player %s (%d) left or dropped" % [str(players[id].get("name", "?")), id], VERSION, one_way_s * 2000.0)
 	_sent_world_generation.erase(id)
 	if players.has(id):
 		ui.notify(t("left") % players[id]["name"], players[id]["color"])
@@ -859,6 +1026,7 @@ func _on_connection_failed() -> void:
 
 func _on_server_disconnected() -> void:
 	trace.note("lost the host")
+	trace.drop_report("lost the host", VERSION, one_way_s * 2000.0)
 	leave(t("host_closed"))
 
 
@@ -1004,6 +1172,13 @@ func _rx_chat(text: String) -> void:
 
 func send_chat(text: String) -> void:
 	text = text.strip_edges()
+	if text in ["/schluessel", "/schlüssel", "/key", "/llave"]:
+		if active() and is_instance_valid(world_sync) and is_instance_valid(world_sync.ending_sync) and is_instance_valid(world_sync.get("player")):
+			world_sync.ending_sync.request_key((world_sync.get("player") as Node3D).global_position + (world_sync.get("player") as Node3D).global_basis.z * -1.2)
+		return
+	if text.begins_with("/perf"):
+		_perf_command(text)
+		return
 	if text == "" or not active():
 		return
 	_rx_chat.rpc(text)
@@ -1094,6 +1269,7 @@ func _enter_mp_world(payload: Dictionary, generation: int) -> void:
 	f.close()
 	SaveManager.block_save = false
 	SaveManager.begin_load(0)
+	_apply_host_meta(payload.get("meta", {}) if payload is Dictionary else {})
 	_mp_world_load = true
 	get_tree().paused = true
 	phase = Phase.LOADING
@@ -1131,7 +1307,12 @@ func request_resync() -> void:
 	else:
 		if world_sync != null:
 			world_sync._state_tick()
-		_rx_request_world.rpc_id(1, _outgoing_world_seed())
+		var seed := _outgoing_world_seed()
+		if seed < 0:
+			ui.notify(preload("res://mods/multiplayer/mp_i18n.gd").phrase("Gerade nicht möglich, die Welt wird noch geladen. Versuch es gleich noch einmal.", "Not possible right now, the world is still loading. Try again in a moment."))
+			return
+		_rx_request_world.rpc_id(1, seed)
+		_resync_asked_at = maxi(1, Time.get_ticks_msec())
 		ui.notify(t("asking_world"))
 
 
@@ -1289,13 +1470,13 @@ func _rx_prop_del(ids: PackedInt64Array, world_seed: int = -1) -> void:
 
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", 0)
-func _rx_prop_move(ids: PackedInt64Array, xfs: Array, sequence: int = 0, epochs: PackedInt64Array = PackedInt64Array(), world_seed: int = -1) -> void:
+func _rx_prop_move(ids: PackedInt64Array, xfs: Array, sequence: int = 0, epochs: PackedInt64Array = PackedInt64Array(), world_seed: int = -1, vels: PackedVector3Array = PackedVector3Array()) -> void:
 	if not _accept_world_seed(world_seed):
 		return
 	_trace("prop_move", ids.size())
 	var p := _props()
 	if p != null:
-		p.on_move(multiplayer.get_remote_sender_id(), ids, xfs, sequence, epochs)
+		p.on_move(multiplayer.get_remote_sender_id(), ids, xfs, sequence, epochs, vels)
 
 
 @rpc("any_peer", "call_remote", "reliable", 0)
@@ -1454,7 +1635,7 @@ func _rx_mice(epoch: String, sequence: int, packed: PackedByteArray, raw_size: i
 		world_sync.mice_sync.on_state(epoch, sequence, packed, raw_size)
 
 
-@rpc("authority", "call_remote", "reliable", 4)
+@rpc("authority", "call_remote", "reliable", 3)
 func _rx_power_state(epoch: String, state: Dictionary, world_seed: int = -1) -> void:
 	if not _accept_world_seed(world_seed):
 		return
@@ -1495,6 +1676,43 @@ func _rx_board(key: String, id: int, i: int, n: int, raw_size: int, piece: Packe
 		return
 	if is_host or multiplayer.get_remote_sender_id() == 1:
 		world_sync.boards_sync.on_piece(key, id, i, n, raw_size, piece)
+
+
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _rx_rake_drive(key: String, direction: float, world_seed: int = -1) -> void:
+	if not is_host or not _accept_world_seed(world_seed):
+		return
+	_trace("rake_drive")
+	if world_sync != null and is_instance_valid(world_sync.machines_sync):
+		world_sync.machines_sync.on_rake_drive(key, direction)
+
+
+@rpc("authority", "call_remote", "reliable", 0)
+func _rx_rake_drive_go(key: String, direction: float, world_seed: int = -1) -> void:
+	if not _accept_world_seed(world_seed):
+		return
+	_trace("rake_drive_go")
+	if world_sync != null and is_instance_valid(world_sync.machines_sync):
+		world_sync.machines_sync.on_rake_drive_go(key, direction)
+
+
+@rpc("authority", "call_remote", "reliable", 0)
+func _rx_rake_drive_end(key: String, xform: Transform3D, world_seed: int = -1) -> void:
+	if not _accept_world_seed(world_seed):
+		return
+	_trace("rake_drive_end")
+	if world_sync != null and is_instance_valid(world_sync.machines_sync):
+		world_sync.machines_sync.on_rake_drive_end(key, xform)
+
+
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _rx_depot_setting(field: String, value: Dictionary, world_seed: int = -1) -> void:
+	if not is_host or not _accept_world_seed(world_seed):
+		return
+	_trace("depot_setting", value.size())
+	if world_sync == null or world_sync.contracts_sync == null:
+		return
+	world_sync.contracts_sync.on_setting(field, value)
 
 
 @rpc("authority", "call_remote", "reliable", 0)
@@ -1678,6 +1896,52 @@ func _rx_belt_pick_result(owner: int, id: int, world_seed: int = -1) -> void:
 		return
 	if not is_host and is_instance_valid(world_sync):
 		world_sync.belts_sync.on_pick_result(owner, id)
+
+
+func _ending_sender_ok(world_seed: int) -> bool:
+	if not _accept_world_seed(world_seed) or not is_instance_valid(world_sync) or not is_instance_valid(world_sync.ending_sync):
+		return false
+	var sender := multiplayer.get_remote_sender_id()
+	# guests only take it from the host, the host from players in the session
+	return sender == 1 if not is_host else players.has(sender)
+
+
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _rx_ending_press(at: Vector3, world_seed: int = -1) -> void:
+	if _ending_sender_ok(world_seed) and at.is_finite():
+		world_sync.ending_sync.on_press(multiplayer.get_remote_sender_id(), at)
+
+
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _rx_key(held: bool, xform: Transform3D, world_seed: int = -1) -> void:
+	if _ending_sender_ok(world_seed):
+		world_sync.ending_sync.on_key(multiplayer.get_remote_sender_id(), held, xform)
+
+
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _rx_key_fetch(at: Vector3, world_seed: int = -1) -> void:
+	if _ending_sender_ok(world_seed) and is_host:
+		world_sync.ending_sync.fetch_key(multiplayer.get_remote_sender_id(), at)
+
+
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _rx_key_turned(world_seed: int = -1) -> void:
+	if _ending_sender_ok(world_seed):
+		world_sync.ending_sync.on_key_turned(multiplayer.get_remote_sender_id())
+
+
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _rx_ending_show(at: Vector3, world_seed: int = -1) -> void:
+	if _ending_sender_ok(world_seed):
+		world_sync.ending_sync.on_show(multiplayer.get_remote_sender_id(), at)
+
+
+@rpc("any_peer", "call_remote", "reliable", 0)
+func _rx_hatch_open(world_seed: int = -1) -> void:
+	if not _accept_world_seed(world_seed):
+		return
+	if is_host and is_instance_valid(world_sync):
+		world_sync.on_hatch_open(multiplayer.get_remote_sender_id())
 
 
 @rpc("any_peer", "call_remote", "reliable", 0)
@@ -1936,16 +2200,111 @@ func _tune_connection_timeout(id: int) -> void:
 	if connection != null:
 		connection.set_timeout(32, 15000, 45000)
 
-@rpc("any_peer", "call_remote", "reliable", 4)
+@rpc("any_peer", "call_remote", "reliable", 3)
 func _rx_power_request(epoch: String, seq: int, action: String, args: Dictionary, world_seed: int = -1) -> void:
 	if action != "power" or not _accept_world_seed(world_seed):
 		return
 	if is_host and world_sync != null and world_sync.economy != null:
 		world_sync.economy.on_request(multiplayer.get_remote_sender_id(), epoch, seq, action, args)
 
-@rpc("authority", "call_remote", "reliable", 4)
+@rpc("authority", "call_remote", "reliable", 3)
 func _rx_power_result(epoch: String, seq: int, result: Dictionary, world_seed: int = -1) -> void:
 	if result.get("action", "") != "power" or not _accept_world_seed(world_seed):
 		return
 	if world_sync != null and world_sync.economy != null:
 		world_sync.economy.on_result(epoch, seq, result)
+
+
+func _process(_delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(_delta)
+	__MPCost.add("mp", Time.get_ticks_usec() - __t)
+
+
+# A big endgame yard runs the D3D12 renderer out of resource descriptors after
+# 40-75 minutes (the game's default heap is 65536) and the screen goes black;
+# the host's log had 100,000 of those errors. The mod's own resources stay flat
+# (about 6,700 for the whole evening), so the fix is the engine setting, which
+# only override.cfg can raise. Say so once, when it is missing.
+func _check_descriptors() -> void:
+	if not is_instance_valid(ui) or RenderingServer.get_current_rendering_driver_name() != "d3d12":
+		return
+	var n := int(ProjectSettings.get_setting("rendering/rendering_device/d3d12/max_resource_descriptors", 65536))
+	if n >= 262144:
+		return
+	if _add_descriptor_line():
+		ui.notify(preload("res://mods/multiplayer/mp_i18n.gd").phrase(
+			"Grafik: Die Einstellung gegen schwarzes Bild nach etwa einer Stunde wurde in override.cfg eingetragen. Sie gilt ab dem nächsten Spielstart.",
+			"Graphics: the setting against a black screen after about an hour was added to override.cfg. It takes effect the next time the game starts."))
+		return
+	ui.notify(preload("res://mods/multiplayer/mp_i18n.gd").phrase(
+		"Grafik: Für große Höfe in override.cfg unter [rendering] die Zeile rendering_device/d3d12/max_resource_descriptors=262144 eintragen (sonst kann das Bild nach etwa einer Stunde schwarz werden). Siehe ANLEITUNG-DE.txt.",
+		"Graphics: for big yards add rendering_device/d3d12/max_resource_descriptors=262144 under [rendering] in override.cfg (otherwise the screen can go black after about an hour). See README.txt."))
+
+
+# The engine setting can only come from override.cfg, next to the game. The
+# line is added there once (the file is kept as override.cfg.mp_backup
+# first); a value someone already set is left alone.
+const DESCRIPTOR_KEY := "rendering_device/d3d12/max_resource_descriptors"
+
+func _add_descriptor_line() -> bool:
+	if OS.has_feature("editor"):
+		return false
+	return _add_descriptor_line_to(OS.get_executable_path().get_base_dir().path_join("override.cfg"))
+
+
+func _add_descriptor_line_to(path: String) -> bool:
+	if not FileAccess.file_exists(path):
+		return false
+	var text := FileAccess.get_file_as_string(path)
+	if text.is_empty() or text.contains(DESCRIPTOR_KEY):
+		return false
+	var nl := "\r\n" if text.contains("\r\n") else "\n"
+	var backup := path + ".mp_backup"
+	if not FileAccess.file_exists(backup):
+		var b := FileAccess.open(backup, FileAccess.WRITE)
+		if b == null:
+			return false
+		b.store_string(text)
+		b.close()
+	var line := DESCRIPTOR_KEY + "=262144"
+	var lines := text.split(nl)
+	var at := -1
+	for i in lines.size():
+		if lines[i].strip_edges() == "[rendering]":
+			at = i
+			break
+	var out := ""
+	if at >= 0:
+		lines.insert(at + 1, line)
+		out = nl.join(lines)
+	else:
+		out = text if text.ends_with(nl) else text + nl
+		out += nl + "[rendering]" + nl + line + nl
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string(out)
+	f.close()
+	return FileAccess.get_file_as_string(path).contains(line)
+
+
+# The run's mode and yard layout, as the host has them (creative/sandbox,
+# cozy, the shed, the stand and the shop). The game takes them from the
+# save's meta when it loads a slot; a guest's world comes from the host, so
+# they are set here as well.
+func _apply_host_meta(meta: Variant) -> void:
+	if not (meta is Dictionary):
+		return
+	var m: Dictionary = meta
+	if m.get("sandbox") is bool and "current_sandbox" in SaveManager:
+		SaveManager.current_sandbox = m.sandbox
+	if m.get("cozy") is bool and SaveManager.has_method("_set_cozy"):
+		SaveManager.call("_set_cozy", bool(m.cozy) and not bool(m.get("sandbox", false)))
+	if (m.get("shed_bays") is int or m.get("shed_bays") is float) and "shed_long_bays" in Cfg:
+		Cfg.shed_long_bays = int(m.shed_bays)
+	if m.get("shed_grid") is bool and SaveManager.has_method("_set_shed_grid"):
+		SaveManager.call("_set_shed_grid", m.shed_grid)
+	for key in ["stand_spot", "shop_spot"]:
+		if m.get(key) is Dictionary and key in Cfg:
+			Cfg.set(key, m[key])

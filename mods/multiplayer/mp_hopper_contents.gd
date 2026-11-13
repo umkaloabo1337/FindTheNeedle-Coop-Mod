@@ -1,4 +1,5 @@
 extends Node3D
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const CELL_COUNT := 88
 static var _native_mesh: ArrayMesh
@@ -112,7 +113,7 @@ func set_amount(amount: int, capacity: int) -> void:
 	_update_visual()
 	set_process(absf(_fraction - _target_fraction) > 0.0001 or _pour_left > 0.0)
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	_clock += maxf(0.0, delta)
 	_fraction = move_toward(_fraction, _target_fraction, maxf(0.0, delta) * 1.8)
 	_pour_left = maxf(0.0, _pour_left - delta)
@@ -145,3 +146,9 @@ func _update_clip() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_TRANSFORM_CHANGED and is_instance_valid(_stock):
 		_update_clip()
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("hopper_contents", Time.get_ticks_usec() - __t)

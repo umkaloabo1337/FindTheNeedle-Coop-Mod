@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const VERSION := 1
 const MAX_AMOUNT := 50000
@@ -190,7 +191,7 @@ func shutdown() -> void:
 		world_sync.economy.completed.disconnect(apply_result)
 	set_process(false)
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	_refresh_wait += delta
 	if _role() != _mode or (_waiting and _refresh_wait >= 0.5):
 		session_started()
@@ -615,3 +616,9 @@ static func _failure(message: String) -> Dictionary:
 
 static func _tr(de: String, en: String) -> String:
 	return preload("res://mods/multiplayer/mp_i18n.gd").phrase(de, en)
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("vacuum_transfer", Time.get_ticks_usec() - __t)

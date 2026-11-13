@@ -1,4 +1,5 @@
 extends "res://mods/multiplayer/mp_build_tool.gd"
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const RouterCatalog = preload("res://mods/multiplayer/mp_router_catalog.gd")
 const HOPPER_ID := "mp_hopper"
@@ -40,7 +41,7 @@ func _sync_ghosts() -> void:
 	if is_instance_valid(hoppers) and is_instance_valid(player) and is_instance_valid(player.camera):
 		hoppers.preview(player.camera.global_transform, _reach, active and _is_hopper())
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not _is_hopper() or not _active:
 		super._process(delta)
 		var base := _hoppers()
@@ -87,7 +88,7 @@ func status() -> Dictionary:
 	return {"kind": "mp_hopper", "placing": false, "ok": evaluated.get("ok", false),
 		"reason": evaluated.get("reason", ""), "length": 0.0, "cost": float(evaluated.get("cost", RouterCatalog.build_cost(RouterCatalog.count_for(player.build_id)) if player.build_id in RouterCatalog.ids() else (0.0 if player.build_id in ["mp_sale_move", "mp_supply_move"] else 2500.0))), "reach": _reach, "aim_note": control_hint()}
 
-func _begin_dismantle(loud := true) -> void:
+func _begin_dismantle(loud := true, refuse := true) -> void:
 	var hoppers := _hoppers()
 	_sale_wreck = 0
 	if is_instance_valid(hoppers) and is_instance_valid(hoppers.sale_stations) and _hold_whole:
@@ -104,7 +105,7 @@ func _begin_dismantle(loud := true) -> void:
 		target = hoppers.target_id(true)
 	if target == 0 or not _hold_whole:
 		_hopper_wreck = 0
-		super._begin_dismantle(loud)
+		super._begin_dismantle(loud, refuse)
 		return
 	_hopper_wreck = target
 	_hopper_wreck_time = 0.0
@@ -209,3 +210,9 @@ func control_hint() -> String:
 	if is_instance_valid(player) and player.build_id in SALE_IDS:
 		return preload("res://mods/multiplayer/mp_i18n.gd").phrase("R halten + Maus · Frei drehen", "Hold R + mouse · Rotate freely")
 	return super.control_hint()
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("hopper_build_tool", Time.get_ticks_usec() - __t)

@@ -1,4 +1,5 @@
 extends Control
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 signal port_selected(side: int)
 var target: Node3D
@@ -20,7 +21,7 @@ func _ready() -> void:
 	resized.connect(_layout)
 	_layout()
 
-func _process(_delta: float) -> void:
+func _mp_timed_process(_delta: float) -> void:
 	if not is_instance_valid(target):
 		return
 	if _dark != ArmPanel.dark:
@@ -62,3 +63,9 @@ func _draw() -> void:
 		var across := Vector2(-travel.y, travel.x)
 		var point := a.lerp(b, 0.6 if output else 0.4)
 		draw_polyline(PackedVector2Array([point - travel * 9.0 + across * 6.0, point, point - travel * 9.0 - across * 6.0]), ink, 3.0, true)
+
+
+func _process(_delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(_delta)
+	__MPCost.add("port_diagram", Time.get_ticks_usec() - __t)

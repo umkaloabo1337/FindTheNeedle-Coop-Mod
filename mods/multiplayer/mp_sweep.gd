@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 signal finished(token: String, result: Dictionary)
 
@@ -98,6 +99,9 @@ func execute(peer: int, args: Dictionary) -> Dictionary:
 				_job.waiting[int(id)] = true
 	var response := {"ok": true, "pending": true, "token": token}
 	_last_requests[peer] = {"request": args.request, "response": response.duplicate(true)}
+	var props_sync: Variant = world_sync.get("props_sync")
+	if is_instance_valid(props_sync) and props_sync.has_method("take_floor_litter"):
+		props_sync.take_floor_litter(props)
 	executing = true
 	_job.things = props.sweep_floor()
 	_job.straws = live.sweep_floor()
@@ -240,7 +244,7 @@ func on_finished(epoch: String, seed: int, token: String, result: Dictionary) ->
 				peer_gone(int(actor))
 	finished.emit(token, result)
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not busy() or not mp.active() or not mp.is_host:
 		return
 	_elapsed += delta
@@ -260,3 +264,9 @@ func _process(delta: float) -> void:
 
 func _tr(de: String, en: String) -> String:
 	return preload("res://mods/multiplayer/mp_i18n.gd").phrase(de, en)
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("sweep", Time.get_ticks_usec() - __t)

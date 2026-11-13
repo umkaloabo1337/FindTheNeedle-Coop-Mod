@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 signal notice(message: String)
 signal mode_changed(enabled: bool)
@@ -138,7 +139,7 @@ func _exit_tree() -> void:
 func _menu_up() -> bool:
 	return is_instance_valid(player) and player.has_method("menu_is_up") and bool(player.call("menu_is_up"))
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if not active:
 		return
 	if not is_instance_valid(player) or not player.is_inside_tree() or not is_instance_valid(_source_camera):
@@ -465,3 +466,9 @@ static func _preview_allowed(tool: Node, ghost: Node3D, origin: Vector3) -> bool
 
 static func _tr(de: String, en: String) -> String:
 	return preload("res://mods/multiplayer/mp_i18n.gd").phrase(de, en)
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("build_camera", Time.get_ticks_usec() - __t)

@@ -1,13 +1,14 @@
 # Steam side of the multiplayer mod.
 #
-# The demo ships without the Steam API, so the mod loads the GodotSteam
-# GDExtension at runtime (GDExtensionManager.load_extension) and initialises
-# Steam under the demo's app id. That buys us Steam's relay network: players
+# The Early Access release starts Steam on its own (SteamLink autoload, app
+# 5160800); the mod then reuses that session. Only when Steam is not up yet
+# (the old demo shipped without the Steam API) does the mod load the
+# GodotSteam GDExtension at runtime and initialise Steam itself. That buys us Steam's relay network: players
 # connect through Steam instead of a direct IP, so nobody has to open a port,
 # and friends can be invited straight from the Steam overlay.
 extends Node
 
-const APP_ID := 5165210  # Find The Needle Demo
+const APP_ID := 5160800  # Find The Needle (Early Access); the demo was 5165210
 
 var available := false      # extension loaded and Steam initialised
 var load_status := ""
@@ -42,15 +43,16 @@ func setup(base_dir: String) -> Dictionary:
 	steam = Engine.get_singleton("Steam")
 	# callbacks are run from _process below (it keeps going while the game is
 	# paused); letting GodotSteam embed them as well ran every callback twice
-	var res: Variant = steam.call("steamInitEx", APP_ID, false)
-	var code := 0
-	var verbal := ""
-	if res is Dictionary:
-		code = int(res.get("status", -1))
-		verbal = str(res.get("verbal", ""))
-	if code != 0:
-		load_status = "Steam no arrancó: %s" % verbal
-		return {"ok": false, "status": load_status}
+	if not _game_started_steam():
+		var res: Variant = steam.call("steamInitEx", APP_ID, false)
+		var code := 0
+		var verbal := ""
+		if res is Dictionary:
+			code = int(res.get("status", -1))
+			verbal = str(res.get("verbal", ""))
+		if code != 0:
+			load_status = "Steam no arrancó: %s" % verbal
+			return {"ok": false, "status": load_status}
 	steam_id = int(steam.call("getSteamID"))
 	persona = str(steam.call("getPersonaName"))
 	available = true
@@ -59,6 +61,13 @@ func setup(base_dir: String) -> Dictionary:
 	_connect_signals()
 	set_process(true)
 	return {"ok": true, "status": load_status}
+
+
+# The full game initialises Steam itself; initialising it a second time
+# re-registered the process under the demo's app id.
+func _game_started_steam() -> bool:
+	var link := get_node_or_null("/root/SteamLink")
+	return link != null and bool(link.get("running"))
 
 
 func _ready() -> void:
@@ -83,9 +92,18 @@ func _process(_delta: float) -> void:
 # 512 KB is less than a big yard, so Steam refused the rest of it.
 const SEND_BUFFER := 8 << 20
 
+# Steam paces every connection at its send rate, 256 KB/s unless told
+# otherwise. A big yard sends more than that, and with the large buffer above
+# the rest waited in line, so everything (picking up an item included) came
+# seconds late. Let it go faster; the relay still shapes what it cannot carry.
+const SEND_RATE_MIN := 512 << 10
+const SEND_RATE_MAX := 4 << 20
+
 func _tune_networking() -> void:
 	_set_global("NETWORKING_CONFIG_P2P_TRANSPORT_ICE_ENABLE", "NETWORKING_CONFIG_P2P_TRANSPORT_ICE_DISABLE")
 	_set_global("NETWORKING_CONFIG_SEND_BUFFER_SIZE", "", SEND_BUFFER)
+	_set_global("NETWORKING_CONFIG_SEND_RATE_MIN", "", SEND_RATE_MIN)
+	_set_global("NETWORKING_CONFIG_SEND_RATE_MAX", "", SEND_RATE_MAX)
 
 
 func _set_global(key: String, value_name: String, value: int = 0) -> void:
@@ -117,6 +135,24 @@ func _connect_signals() -> void:
 	_link("join_game_requested", _on_join_game_requested)
 	_link("lobby_chat_update", _on_lobby_chat_update)
 	_link("lobby_invite", _on_lobby_invite)
+	_link("network_connection_status_changed", _on_net_status)
+
+
+# Steam's own word on a connection that changed: a player who dropped out of a
+# session showed nothing in either game's log, only "the host closed the game".
+# The end reason and Steam's debug text say whether it was the relay, a
+# timeout, or the other side closing.
+func _on_net_status(handle: Variant = null, connection: Variant = null, old_state: Variant = null, _extra: Variant = null) -> void:
+	var info := {}
+	if connection is Dictionary:
+		for key in ["connection_state", "end_reason", "end_debug", "identity", "connection_description", "remote_address"]:
+			if (connection as Dictionary).has(key):
+				info[key] = connection[key]
+	var line := "steam connection %s: was %s, now %s" % [str(handle), str(old_state), str(info if not info.is_empty() else connection).left(400)]
+	print("[MPMod] " + line)
+	var session: Node = get_node_or_null("/root/MPMod")
+	if is_instance_valid(session) and session.get("trace") != null:
+		session.trace.note(line)
 
 
 func _link(sig: String, cb: Callable) -> void:
@@ -224,8 +260,13 @@ func _on_join_requested(id: int, _friend_id: int) -> void:
 	join_requested.emit(id)
 
 
-func _on_lobby_invite(_inviter: int, id: int, _game: int) -> void:
-	join_requested.emit(id)
+# Someone sent us an invite. This comes when it arrives, not when it is
+# accepted, so it must not join anything by itself; accepting it in Steam
+# arrives as join_requested.
+signal invited(inviter: int, id: int)
+
+func _on_lobby_invite(inviter: int, id: int, _game: int) -> void:
+	invited.emit(inviter, id)
 
 
 func _on_lobby_chat_update(_id: int, _changed: int, _making: int, _state: int) -> void:

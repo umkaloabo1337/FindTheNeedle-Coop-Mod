@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const ADDONS := [
 	{"name": "FTNToolUpgrades", "path": "res://mods/ftn_tool_upgrades/ftn_tool_upgrades.gd"},
@@ -17,7 +18,7 @@ func start(mp_node: Node) -> void:
 	_ensure_addons()
 
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	_sync_t -= delta
 	if _sync_t > 0.0:
 		return
@@ -289,3 +290,9 @@ func _sync_runtime() -> void:
 						f_paths[cid] = weakref(conv)
 						if speed_mod.has_method("_forget_path") and not conv.tree_exiting.is_connected(speed_mod._forget_path):
 							conv.tree_exiting.connect(speed_mod._forget_path.bind(cid), CONNECT_ONE_SHOT)
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("addon_bridge", Time.get_ticks_usec() - __t)

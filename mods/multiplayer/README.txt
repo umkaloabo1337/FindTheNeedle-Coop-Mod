@@ -1,4 +1,4 @@
-FIND THE NEEDLE CO-OP MOD  v0.19.6-xRangerDE.80
+FIND THE NEEDLE CO-OP MOD  v0.19.6-umka1337.94
 ==================================
 
 Unofficial mod. Every player needs the game (the free Steam demo) and this
@@ -20,6 +20,16 @@ MPMod="*mods/multiplayer/mp.gd"
 
    If the file already has an [autoload] line, just add the MPMod line
    under it.
+
+   Recommended for big endgame yards (otherwise the screen can go black after
+   about an hour, D3D12 "not enough room in the RESOURCES descriptor heap"):
+
+[rendering]
+rendering_device/d3d12/max_resource_descriptors=262144
+
+   If the file already has a [rendering] line, add only the second line under
+   it. If the line is missing, the mod adds it itself on the first start (the
+   old file is kept as override.cfg.mp_backup); it applies from the next start.
 
 3. Start the game FROM STEAM. The main menu now has MULTIPLAYER.
 
@@ -82,6 +92,10 @@ WHAT IS SHARED
   - Loose items: buckets, sacks, bales, wads. You see what the others pick
     up, carry, drop and throw, and you can pick their things up yourself.
   - What is riding on the belts.
+  - The ending: the needle case button, the key, the floor hatch and the
+    show below play for everyone. Afterwards everyone stays in the yard.
+    Cannot find the forged key? Type /key in the chat (Y): it is put at
+    your feet for everyone.
   - Loose straw on the ground, so everyone digs into the same mess.
   - How the machines move, their smoke and lamps, and their settings.
   - The straw and the needle in your bare hands, in your farmer's fist.
@@ -110,6 +124,10 @@ CREDITS
   Steamworks SDK, (c) Valve Corporation.
   Source: https://github.com/AleDev11/FindTheNeedle-Coop-Mod
 
+  Maintained by umka1337.
+  Thanks to AleDev11 for the original co-op mod and the idea behind it, and
+  to xRangerDE for the maintenance builds this release is built on.
+
 Visual fix: loose hay on belts keeps its detailed geometry at distance. Normal
 perspective still makes distant objects smaller. Large visible belt networks
 can require more GPU work. This maintenance preview needs further two-PC testing.
@@ -128,3 +146,9 @@ Sale price has 20 ranks at five percentage points each, reaching twice the base 
 
 Supply Co: aim at the shop and press N for the relocation preview. Left-click places, right-click cancels. The host saves and synchronizes its position and rotation.
 Sessions support eight players total (host + seven guests). Shared upgrades apply to everyone. Overhead camera views synchronize visible machines and loose straw independently of the player body.
+
+DROPPED CONNECTIONS
+When someone drops out of a session, the mod writes a report to
+%APPDATA%\Godot\app_userdata\FindTheNeedle\mp_drops.log (time, ping, Steam's
+reason for the end of the connection and the events before). It survives a
+restart. After a drop, please send it from both sides.

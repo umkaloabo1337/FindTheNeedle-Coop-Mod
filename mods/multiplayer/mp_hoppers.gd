@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const Intake = preload("res://mods/multiplayer/mp_hopper_intake.gd")
 const Store = preload("res://mods/multiplayer/mp_hopper_state.gd")
@@ -190,7 +191,7 @@ func invalidate_connections() -> void:
 	_refresh = 0.0
 	_connections.clear()
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if _role() != _mode:
 		session_started()
 	if not _usable() or not is_instance_valid(world_sync):
@@ -1030,3 +1031,9 @@ func _intake() -> void:
 			if world_sync.world.live.consume(body):
 				Store.transfer(row, 1)
 				_dirty = true
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("hoppers", Time.get_ticks_usec() - __t)

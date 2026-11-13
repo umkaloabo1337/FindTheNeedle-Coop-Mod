@@ -1,4 +1,5 @@
 extends CanvasLayer
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 var service: Node
 var _id := 0
@@ -77,7 +78,7 @@ func _fit() -> void:
 	_card.size = Vector2(minf(620.0, size.x - 24.0), 0.0)
 	_card.position = (size - _card.size) * 0.5
 
-func _process(_delta: float) -> void:
+func _mp_timed_process(_delta: float) -> void:
 	if visible:
 		_refresh()
 
@@ -105,3 +106,9 @@ func _input(event: InputEvent) -> void:
 	if visible and (event.is_action_pressed("free_mouse") or event.is_action_pressed("interact")):
 		close()
 		get_viewport().set_input_as_handled()
+
+
+func _process(_delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(_delta)
+	__MPCost.add("sale_panel", Time.get_ticks_usec() - __t)

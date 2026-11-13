@@ -1,6 +1,7 @@
 # UI for the multiplayer mod: lobby panel (F2 or the menu's MULTIPLAYER entry),
 # notification feed, chat (Y) and the player list.
 extends CanvasLayer
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const COL_TITLE := Color(1.0, 0.86, 0.34)
 const COL_TEXT := Color(0.95, 0.96, 0.99)
@@ -1179,7 +1180,7 @@ func _forget_note() -> void:
 # The hand-off is driven by RPCs with no signals to hang off, so poll the
 # session state instead: it is a handful of reads and it also catches the host
 # dropping back to the menu.
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	_try_restore_mouse()
 	if _panel != null and _lobby_locale != mp.i18n.language_code(TranslationServer.get_locale()):
 		refresh()
@@ -1438,3 +1439,9 @@ func _find_mp_button(n: Node) -> Button:
 					return c
 		stack.append_array(c.get_children())
 	return null
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("ui", Time.get_ticks_usec() - __t)

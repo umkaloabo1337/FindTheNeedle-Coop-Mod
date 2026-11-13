@@ -1,4 +1,5 @@
 extends "res://scripts/player/player.gd"
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 var mp_tools: Node
 var mp_build_camera: Node
@@ -15,7 +16,7 @@ func _throw_tool_object(id: String) -> bool:
 		mp_tools.request_drop(id, true)
 		return false
 	return super._throw_tool_object(id)
-func _physics_process(delta: float) -> void:
+func _mp_timed_physics_process(delta: float) -> void:
 	var allowed := Tech.rank_of("double_jump") > 0 and not noclip and not scripted and not _flung and not _climbing and _ladder_grace <= 0.0 and _crouch < 0.5 and _accepts_move() and not menu_is_up() and not _ladder_close()
 	if jetpack != null and Tech.rank_of("jetpack") > 0:
 		allowed = false
@@ -68,3 +69,9 @@ func menu_is_up() -> bool:
 	if is_instance_valid(panel) and bool(panel.get("visible")):
 		return true
 	return super.menu_is_up()
+
+
+func _physics_process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_physics_process(delta)
+	__MPCost.add("player(physics)", Time.get_ticks_usec() - __t)

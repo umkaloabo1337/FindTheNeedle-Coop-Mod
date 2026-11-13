@@ -102,3 +102,19 @@ func fold_away(body: RigidBody3D) -> bool:
 	if not _automatic_cleanup_enabled():
 		return false
 	return super.fold_away(body)
+
+# Guest: straw that the factory makes (a belt's load falling off, a machine
+# spilling what it cannot take) is the host's to make; it comes here as the
+# host's copy. Our belts run up to machines that are frozen here, and the straw
+# they made of it was never eaten: some 20 straws a second piled up awake in
+# front of the scanners and compressors of a big yard, and the physics worked
+# every one of them each tick for the rest of the session. What a player does
+# (raking, the fork, the vacuum) does not run inside the factory tick.
+func spawn(pos: Vector3, basis: Basis, velocity: Vector3, tint: Color, visual_only: bool = false) -> RigidBody3D:
+	if not visual_only and preload("res://mods/multiplayer/mp_cost.gd").in_clock and _mp_guest():
+		return null
+	return super.spawn(pos, basis, velocity, tint, visual_only)
+
+
+func _mp_guest() -> bool:
+	return is_instance_valid(mp_strands) and is_instance_valid(mp_strands.mp) and mp_strands.mp.active() and not mp_strands.mp.is_host

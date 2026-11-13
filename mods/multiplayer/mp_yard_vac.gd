@@ -1,4 +1,5 @@
 extends "res://scripts/tools/yard_vac.gd"
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const MP_DUMP_BUDGET := 2000
 const MP_DUMP_INTERVAL := 0.1
@@ -17,7 +18,7 @@ func mp_cancel_dump() -> void:
 	_mp_dump_wait = 0.0
 	set_pouring(false)
 
-func _physics_process(delta: float) -> void:
+func _mp_timed_physics_process(delta: float) -> void:
 	if bool(get_meta("mp_vacuum_escrow", false)):
 		set_sucking(false)
 		set_pouring(false)
@@ -149,11 +150,11 @@ func _pour_launch(from: Vector3) -> Vector3:
 		return _arc_to(from, _into_point(_into))
 	return super._pour_launch(from)
 
-func _take_falling(body: RigidBody3D) -> void:
+func _take_falling(body: RigidBody3D, airtime: float = 0.0) -> void:
 	if mp_dump_all and is_instance_valid(_into):
 		_mp_track_flight(body, _into)
 		return
-	super._take_falling(body)
+	super._take_falling(body, airtime)
 
 func _mp_track_flight(body: RigidBody3D, target: Node3D) -> void:
 	var id := body.get_instance_id()
@@ -219,3 +220,9 @@ func _draw_fill() -> void:
 		var transfer: Node = mp_tools.mp.world_sync.get("vacuum_transfer")
 		if is_instance_valid(transfer):
 			transfer.capture_fill(self)
+
+
+func _physics_process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_physics_process(delta)
+	__MPCost.add("yard_vac(physics)", Time.get_ticks_usec() - __t)

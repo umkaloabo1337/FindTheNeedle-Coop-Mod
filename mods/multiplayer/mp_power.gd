@@ -1,4 +1,5 @@
 extends Node
+const __MPCost = preload("res://mods/multiplayer/mp_cost.gd")
 
 const BuildSnapshot = preload("res://mods/multiplayer/mp_build_snapshot.gd")
 const FrameSlots = preload("res://mods/multiplayer/mp_frame_slots.gd")
@@ -9,6 +10,7 @@ const TICK := 1.0
 const FULL_TICK := 5.0
 const MAX_NODES := 16384
 const MAX_BYTES := 8 << 20
+const MAX_ORDER := 15  # power order is per machine since EA v14; the game uses a few levels
 var mp: Node
 var world_sync: Node
 var builds: Node
@@ -102,7 +104,7 @@ func _restore_grid(current: Object, original: Script) -> void:
 func _ready_for_state() -> bool:
 	return is_instance_valid(builds) and not world_sync._frozen and not world_sync._applying_builds and world_sync.economy.epoch != "" and builds._grid_settle == 0
 
-func _process(delta: float) -> void:
+func _mp_timed_process(delta: float) -> void:
 	if mp == null or not mp.active():
 		return
 	_clock += delta
@@ -165,7 +167,8 @@ func _capture() -> void:
 		var taggable := _switchable(node)
 		var row := {"id": id, "key": world_sync._bkey(BuildSnapshot.row(node)), "pole": pole,
 			"taggable": taggable, "tag": tags.tag_of(node) if taggable and is_instance_valid(tags) else -1,
-			"off": bool(node.is_switched_off()) if taggable else false, "links": [], "cuts": []}
+			"off": bool(node.is_switched_off()) if taggable else false, "links": [], "cuts": [],
+			"order": int(tags.order_of(node)) if is_instance_valid(tags) and tags.orderable(node) else -1}
 		if pole:
 			for target in node.links_to:
 				if _live(target) and _ids.has(target.get_instance_id()):
@@ -177,8 +180,7 @@ func _capture() -> void:
 			row.cuts.sort()
 		rows.append(row)
 	var names: Array = Array(tags.names) if is_instance_valid(tags) else ["", "", "", "", "", "", "", ""]
-	var priority: Array = Array(tags.priorities) if is_instance_valid(tags) else [1, 1, 1, 1, 1, 1, 1, 1]
-	var state := {"rows": rows, "names": names, "priority": priority}
+	var state := {"rows": rows, "names": names}
 	var flat := _flatten(state)
 	if flat != _flat or _revision == 0:
 		_revision += 1
@@ -203,6 +205,7 @@ func _flatten(state: Dictionary) -> Dictionary:
 		flat["node:%d" % id] = row.key
 		flat["member:%d" % id] = row.tag
 		flat["off:%d" % id] = row.off
+		flat["order:%d" % id] = row.order
 		if row.tag >= 0:
 			groups[row.tag].append(id)
 		for target in row.links:
@@ -215,7 +218,6 @@ func _flatten(state: Dictionary) -> Dictionary:
 		groups[tag].sort()
 		flat["group:%d" % tag] = groups[tag]
 		flat["name:%d" % tag] = state.names[tag]
-		flat["priority:%d" % tag] = state.priority[tag]
 	return flat
 
 func publish(pid: int = 0, force: bool = false, flush: bool = true) -> void:
@@ -270,12 +272,12 @@ func on_state(epoch: String, state: Dictionary) -> void:
 func _valid_state(state: Dictionary) -> bool:
 	if not (state.get("revision") is int) or state.revision <= 0 or not (state.get("rows") is Array) or state.rows.size() > MAX_NODES:
 		return false
-	if not (state.get("names") is Array) or state.names.size() != 8 or not (state.get("priority") is Array) or state.priority.size() != 8:
+	if not (state.get("names") is Array) or state.names.size() != 8:
 		return false
 	if var_to_bytes(state).size() > MAX_BYTES:
 		return false
 	for tag in 8:
-		if not (state.names[tag] is String) or state.names[tag].length() > 16 or not (state.priority[tag] is int) or state.priority[tag] < 0 or state.priority[tag] > 2:
+		if not (state.names[tag] is String) or state.names[tag].length() > 16:
 			return false
 	var ids := {}
 	var keys := {}
@@ -289,6 +291,8 @@ func _valid_state(state: Dictionary) -> bool:
 		if not (row.get("tag") is int) or row.tag < -1 or row.tag > 7 or (not row.taggable and row.tag != -1):
 			return false
 		if not row.pole and not row.taggable:
+			return false
+		if not (row.get("order") is int) or row.order < -1 or row.order > MAX_ORDER:
 			return false
 		if not (row.get("links") is Array) or not (row.get("cuts") is Array):
 			return false
@@ -340,12 +344,16 @@ func _apply_pending() -> void:
 	var wires_changed := false
 	var expected_members := {}
 	var expected_machines := {}
+	var orders_changed := false
 	for row in _pending.rows:
 		if row.tag >= 0:
 			var node: Node3D = resolved[row.id]
 			expected_members[node.get_instance_id()] = row.tag
 			expected_machines[node.get_instance_id()] = node
-	var tags_changed: bool = tags._of != expected_members or tags._machine != expected_machines or Array(tags.names) != _pending.names or Array(tags.priorities) != _pending.priority or not tags._pending.is_empty()
+	for row in _pending.rows:
+		if row.order >= 0 and tags.orderable(resolved[row.id]) and tags.order_of(resolved[row.id]) != row.order:
+			orders_changed = true
+	var tags_changed: bool = tags._of != expected_members or tags._machine != expected_machines or Array(tags.names) != _pending.names or not tags._pending.is_empty() or not tags._pending_order.is_empty()
 	applying = true
 	_client_nodes.clear()
 	_client_ids.clear()
@@ -377,11 +385,16 @@ func _apply_pending() -> void:
 			wires_changed = true
 	if tags_changed:
 		tags.names = PackedStringArray(_pending.names)
-		tags.priorities = PackedInt32Array(_pending.priority)
 		tags._pending.clear()
+		tags._pending_order.clear()
 		tags._of = expected_members
 		tags._machine = expected_machines
 		tags.changed.emit()
+	if tags_changed or orders_changed:
+		for row in _pending.rows:
+			var node: Node3D = resolved[row.id]
+			if row.order >= 0 and tags.orderable(node) and tags.order_of(node) != row.order:
+				tags.set_order(node, row.order)
 	if switches_changed:
 		world_sync.machines_sync._send_edits()
 		var switches := {}
@@ -391,7 +404,7 @@ func _apply_pending() -> void:
 		world_sync.machines_sync.apply_power_switches(switches)
 	if wires_changed:
 		builds._rewire_now()
-	elif (tags_changed or switches_changed) and builds.grid != null:
+	elif (tags_changed or orders_changed or switches_changed) and builds.grid != null:
 		builds.grid.tick()
 	applying = false
 	_applied_revision = _pending.revision
@@ -491,7 +504,7 @@ func request_tag(kind: String, tag: int, value: Variant, machine: Node = null) -
 	if mp.is_host:
 		_capture()
 	var args := {"kind": kind, "tag": tag, "value": value}
-	if kind == "member":
+	if kind in ["member", "order"]:
 		var id := _reference(machine)
 		if id == 0:
 			mp.ui.notify(mp.t("building_missing"))
@@ -586,7 +599,7 @@ func _tag(args: Dictionary, revision: int) -> Dictionary:
 		return _failed()
 	var tag: int = args.tag
 	var kind: String = args.kind
-	if kind not in ["member", "switch_all"] and (tag < 0 or tag >= 8):
+	if kind not in ["member", "order", "switch_all"] and (tag < 0 or tag >= 8):
 		return _failed()
 	match kind:
 		"rename":
@@ -596,13 +609,16 @@ func _tag(args: Dictionary, revision: int) -> Dictionary:
 			if clean != tags.names[tag] and not _unchanged("name:%d" % tag, revision):
 				return _failed()
 			tags.rename(tag, clean)
-		"priority":
-			if not (args.get("value") is int):
+		"order":
+			if not (args.get("value") is int) or not (args.get("node") is int):
 				return _failed()
-			var level: int = clampi(args.value, 0, 2)
-			if level != tags.priorities[tag] and not _unchanged("priority:%d" % tag, revision):
+			var target: Variant = _nodes.get(args.node)
+			if not _live(target) or not tags.orderable(target):
 				return _failed()
-			tags.set_priority(tag, level)
+			var level: int = clampi(args.value, 0, MAX_ORDER)
+			if level != tags.order_of(target) and (not _unchanged("order:%d" % args.node, revision) or not _unchanged("node:%d" % args.node, revision)):
+				return _failed()
+			tags.set_order(target, level)
 		"member":
 			if not (args.get("node") is int):
 				return _failed()
@@ -635,3 +651,9 @@ func _tag(args: Dictionary, revision: int) -> Dictionary:
 		_:
 			return _failed()
 	return {"ok": true}
+
+
+func _process(delta: float) -> void:
+	var __t := Time.get_ticks_usec()
+	_mp_timed_process(delta)
+	__MPCost.add("power", Time.get_ticks_usec() - __t)
